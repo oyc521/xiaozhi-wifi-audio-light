@@ -182,3 +182,8 @@ bool wifi_audio_streaming(void)
     uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
     return s_started && (now - s_last_rx_us) < 1000000u;
 }
+
+int wifi_audio_available(void)
+{
+    return (int)(s_head - s_tail);
+}

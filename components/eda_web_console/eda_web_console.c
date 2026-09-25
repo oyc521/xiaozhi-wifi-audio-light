@@ -348,7 +348,7 @@ static esp_err_t start_bat_handler(httpd_req_t *req) {
     char bat[512];
     int n = snprintf(bat, sizeof(bat),
         "@echo off\r\n"
-        "if not exist \"%%TEMP%%\\esp_loopback.py\" curl -s \"http://%s/loopback.py\" -o \"%%TEMP%%\\esp_loopback.py\"\r\n"
+        "curl -s \"http://%s/loopback.py\" -o \"%%TEMP%%\\esp_loopback.py\"\r\n"
         "echo Installing Python deps (first time needs internet)...\r\n"
         "python -m pip install pyaudiowpatch numpy -q\r\n"
         "echo Starting stream. Close this window to stop.\r\n"

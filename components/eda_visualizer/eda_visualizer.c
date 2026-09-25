@@ -127,7 +127,7 @@ void eda_visualizer_set_audio_source(eda_audio_src_t src) {
         s_wifi_rx_up = true;
     }
     s_audio_src = src;
-    s_fft.sample_rate = (src == EDA_AUDIO_SRC_WIFI) ? 44100 : 16000;
+    s_fft.sample_rate = 16000;   // 麦克风与 WiFi 推流统一 16k（频带上限 8kHz）
     ESP_LOGI(TAG, "音频源切换: %s (端口 %d)",
              src == EDA_AUDIO_SRC_WIFI ? "WiFi 推流" : "麦克风", WIFI_AUDIO_UDP_PORT);
 }
@@ -302,13 +302,13 @@ static void vis_task(void *arg) {
 
         // 2. 取帧计算 FFT。WiFi 推流优先；无流(掉线/暂停)自动降级回麦克风
         bool use_wifi = (s_audio_src == EDA_AUDIO_SRC_WIFI) && wifi_audio_streaming();
-        int want_rate = use_wifi ? 44100 : 16000;
+        int want_rate = 16000;   // 麦/推流统一 16k
         if (s_fft.sample_rate != want_rate) s_fft.sample_rate = want_rate;
 
         int processed = 0;
         if (use_wifi) {
-            // 44.1k 数据率 ~86fps，每个 33ms 节拍最多消化 5 帧防积压
-            while (processed < 5) {
+            // 16k 数据率 ~31fps，与渲染节拍一致；仅在缓冲够一帧时计算，避免补零帧拉低频谱
+            while (processed < 3 && wifi_audio_available() >= FFT_SIZE) {
                 wifi_audio_read(s_wifi_frame, FFT_SIZE, 0);
                 if (fft_processor_process_buffer(&s_fft, s_wifi_frame, FFT_SIZE) != ESP_OK) break;
                 processed++;

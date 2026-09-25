@@ -9,7 +9,7 @@ import sys, socket, time, os
 import numpy as np
 import pyaudiowpatch as pa
 
-SR_OUT = 44100
+SR_OUT = 16000
 CHUNK = 512          # samples per UDP packet (== device FFT_SIZE)
 DISCOVER_PORT = 5005
 AUDIO_PORT = 5004
