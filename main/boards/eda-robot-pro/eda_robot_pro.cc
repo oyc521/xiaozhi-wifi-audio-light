@@ -18,6 +18,7 @@
 #include <driver/i2c_master.h>
 #include <esp_lcd_panel_ops.h>
 #include <esp_lcd_panel_vendor.h>
+#include <esp_timer.h>
 #include <eda_web_console.h>
 #include <eda_lan_ota.h>
 
@@ -77,10 +78,20 @@ static void EdaAiAudioToggle(bool enable) {
         audio.EnableWakeWordDetection(true);
         ESP_LOGI(TAG, "AI 语音已恢复");
     } else {
-        audio.EnableVoiceProcessing(false);
-        audio.EnableWakeWordDetection(false);
+        if (audio.IsAudioProcessorRunning()) audio.EnableVoiceProcessing(false);
+        if (audio.IsWakeWordRunning()) audio.EnableWakeWordDetection(false);
         ESP_LOGI(TAG, "AI 语音已暂停（音乐模式）");
     }
+}
+
+// 周期守卫：音乐模式期间持续压制 AI —— 因为小智回到 idle 时会自己
+// 重新 EnableWakeWordDetection(true)（application.cc:685-689），必须周期性重申。
+static esp_timer_handle_t s_music_guard_timer = nullptr;
+static void EdaMusicModeGuard(void *arg) {
+    if (!eda_visualizer_is_music_mode()) return;
+    auto& audio = Application::GetInstance().GetAudioService();
+    if (audio.IsAudioProcessorRunning()) audio.EnableVoiceProcessing(false);
+    if (audio.IsWakeWordRunning()) audio.EnableWakeWordDetection(false);
 }
 #endif
 
@@ -200,6 +211,10 @@ public:
         ambient_led_ = new EdaAmbientLed();
         eda_visualizer_start(STRIP_GPIO, STRIP_LED_NUM, CONFIG_EDA_STRIP_BRIGHTNESS);
         eda_visualizer_set_ai_audio_cb(EdaAiAudioToggle);
+        // 音乐模式期间每秒重申一次"暂停 AI"，防止小智回 idle 时自恢复唤醒
+        esp_timer_create_args_t guard_args = { .callback = EdaMusicModeGuard, .name = "music_guard" };
+        esp_timer_create(&guard_args, &s_music_guard_timer);
+        esp_timer_start_periodic(s_music_guard_timer, 1000 * 1000);
         InitializeEdaStripController();
 #else
         strip_ = new CircularStrip(STRIP_GPIO, STRIP_LED_NUM);
