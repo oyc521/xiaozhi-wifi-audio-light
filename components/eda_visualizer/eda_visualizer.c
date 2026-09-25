@@ -127,14 +127,21 @@ void eda_visualizer_set_emotion(const char *emotion) {
     ESP_LOGD(TAG, "情绪染色: %s -> hue=%.2f intensity=%.2f", emotion, hue, intensity);
 }
 
-// 合成"慢呼吸"频谱：聊天模式常驻用，让所有效果（含音频/节拍型）都能动
+// 合成"慢呼吸"频谱：聊天模式常驻用。柔和起落（无硬脉冲）：
+// 每个周期一次平滑"吸气"上升(~0.7s, raised-cosine) + 缓慢衰减(~5s)，
+// 既柔和，又能让节拍引擎偶尔触发一次轻微律动。
 static void synth_chat_bands(float t_sec) {
-    const float breath = 0.55f + 0.45f * sinf(2.0f * 3.14159265f * t_sec / 4.0f);  // ~4s 呼吸
-    float phase = t_sec - 2.5f * floorf(t_sec / 2.5f);                              // ~2.5s 一次脉冲
-    const float pulse = (phase < 0.30f) ? (1.0f - phase / 0.30f) : 0.0f;           // 给节拍引擎做 onset
+    const float T = 6.0f;                               // 呼吸周期 ~6s
+    float p = (t_sec - T * floorf(t_sec / T)) / T;      // 0..1
+    float env;
+    if (p < 0.12f) {
+        env = 0.5f - 0.5f * cosf(3.14159265f * p / 0.12f);   // 柔和上升，无尖角
+    } else {
+        env = expf(-3.2f * (p - 0.12f));                     // 缓慢衰减
+    }
     for (int i = 0; i < NUM_FREQ_BANDS; i++) {
-        float shape = 1.0f - 0.55f * ((float)i / (float)(NUM_FREQ_BANDS - 1));      // 低频略强
-        s_chat_bands[i] = (breath * 45.0f + pulse * 140.0f) * shape;
+        float shape = 1.0f - 0.55f * ((float)i / (float)(NUM_FREQ_BANDS - 1));  // 低频略强
+        s_chat_bands[i] = (25.0f + 90.0f * env) * shape;
     }
 }
 
