@@ -20,6 +20,7 @@ typedef enum {
     CMD_TEST_RAINBOW,     // 测试彩虹
     CMD_POST_SET,         // 设置全局后处理参数（data.post）
     CMD_FX_SET,           // 设置统一效果参数（data.fx）
+    CMD_RESET_TRAIL,      // 复位余晖状态（切音源/进出音乐模式时避免残影）
     CMD_SET_PARAM,        // 设置参数
     CMD_GET_STATUS        // 获取状态
 } core_command_type_t;

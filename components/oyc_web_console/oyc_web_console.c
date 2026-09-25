@@ -233,9 +233,10 @@ static esp_err_t api_auto_handler(httpd_req_t *req) {
 // ---------------- /api/post (后处理) ----------------
 static esp_err_t api_post_handler(httpd_req_t *req) {
     if (req->method == HTTP_POST || req->method == HTTP_PUT) {
-        float gamma = qs_float(req, "gamma", 1.0f);
-        int gate = (int)qs_float(req, "gate", 0.0f);
-        float after = qs_float(req, "afterimage", 0.0f);
+        core_status_t cur; dual_core_com_get_status(&cur);   // 以当前值为基准（支持部分更新）
+        float gamma = qs_float(req, "gamma", cur.gamma);
+        int gate = (int)qs_float(req, "gate", (float)cur.gate);
+        float after = qs_float(req, "afterimage", cur.afterimage);
         if (gate < 0) {
             gate = 0;
         }

@@ -16,7 +16,7 @@ typedef struct {
 typedef struct {
     int gpio_pin;
     int num_leds;
-    int brightness;  // 0-255
+    int brightness;  // 0-100 (percent)
 } led_config_t;
 
 // 可视化模式
@@ -99,6 +99,9 @@ esp_err_t led_show(void);
 
 // 设置可视化模式
 esp_err_t led_set_mode(led_mode_t mode);
+
+// 复位后处理余晖状态（切换音源/模式/清空时避免残影）
+void led_reset_trail(void);
 
 // 设置全局亮度（0-100，百分比）
 esp_err_t led_set_brightness(uint8_t brightness_percent);

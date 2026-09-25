@@ -28,7 +28,7 @@
 
 static const char *TAG = "OYC_VIS";
 
-#define VIS_FPS_MS 33   // ~30fps，与 A 仓库一致（512@16k=31.25 帧/s 数据率）
+#define VIS_FPS_MS 33   // ~30fps 渲染刷新；FFT 帧 1024@16k≈64ms，靠平滑与追帧解耦
 #define WIFI_AUDIO_UDP_PORT 5004
 
 static fft_processor_t s_fft;
@@ -49,6 +49,12 @@ static float s_chat_bands[NUM_FREQ_BANDS];     // 聊天模式合成"慢呼吸"�
 
 static void post_command(const core_command_t *cmd) {
     dual_core_com_send_command((core_command_t *)cmd, pdMS_TO_TICKS(50));
+}
+
+// 请求渲染任务复位余晖状态（切音源/进出音乐模式时避免残影）
+static void post_reset_trail(void) {
+    core_command_t cmd = { .type = CMD_RESET_TRAIL };
+    post_command(&cmd);
 }
 
 // 用户显式指定模式：同时关闭自动跟随，状态切换不再覆盖
@@ -165,6 +171,7 @@ void oyc_visualizer_set_audio_source(oyc_audio_src_t src) {
         }
         s_wifi_rx_up = true;
     }
+    if (src != s_audio_src) post_reset_trail();   // 换音源清余晖，避免残影
     s_audio_src = src;
     s_fft.sample_rate = 16000;   // 麦克风与 WiFi 推流统一 16k（频带上限 8kHz）
     ESP_LOGI(TAG, "音频源切换: %s (端口 %d)",
@@ -205,6 +212,7 @@ esp_err_t oyc_visualizer_enter_music_mode(void) {
     s_music_mode = true;
     s_auto_follow = false;        // 锁定灯效，不被设备状态覆盖
     s_stream_lost_us = 0;
+    post_reset_trail();           // 进音乐模式清余晖
     if (s_ai_cb) s_ai_cb(false);  // 暂停小智唤醒/识别
     ESP_LOGI(TAG, ">> 进入音乐模式：源=WiFi推流，AI语音已暂停");
     return ESP_OK;
@@ -216,6 +224,7 @@ void oyc_visualizer_exit_music_mode(void) {
     oyc_visualizer_set_audio_source(OYC_AUDIO_SRC_MIC);
     s_auto_follow = true;         // 恢复状态跟随
     s_stream_lost_us = 0;
+    post_reset_trail();           // 退出音乐模式清余晖
     if (s_ai_cb) s_ai_cb(true);   // 恢复小智语音
     ESP_LOGI(TAG, ">> 退出音乐模式：源=麦克风，AI语音已恢复");
 }
@@ -300,6 +309,9 @@ static void apply_command(const core_command_t *cmd) {
         post_command(&m);
         break;
     }
+    case CMD_RESET_TRAIL:
+        led_reset_trail();
+        break;
     case CMD_SET_PARAM:
     case CMD_GET_STATUS:
     default:
@@ -388,7 +400,7 @@ esp_err_t oyc_visualizer_start(int gpio, int led_num, int brightness_percent) {
     led_config_t cfg = {
         .gpio_pin = gpio,
         .num_leds = led_num,
-        .brightness = 255,
+        .brightness = brightness_percent,
     };
     ret = led_controller_init(&cfg);
     if (ret != ESP_OK) {

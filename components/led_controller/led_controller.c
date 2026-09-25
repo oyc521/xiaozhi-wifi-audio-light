@@ -16,9 +16,14 @@ static led_strip_handle_t strip = NULL;
 static int led_count = 0;
 static led_mode_t current_mode = MODE_OFF;
 static uint32_t animation_counter = 0;
+// 速度/颜色速度的积分相位：替代 "帧计数 × 速度" 的绝对位置写法，
+// 避免调速时位置突跳（counter 越大抖动越明显）
+static float s_anim_phase = 0.0f;
+static float s_color_phase = 0.0f;
 
 static uint8_t s_brightness_percent = 100;
-static float s_global_brightness = 1.0f;
+static float s_global_brightness = 1.0f;   // 当前亮度(0..1)，每帧向目标缓动
+static float s_target_brightness = 1.0f;   // 目标亮度(0..1)
 
 static inline uint8_t scale_channel(uint8_t ch)
 {
@@ -36,9 +41,28 @@ static inline rgb_color_t scale_color(rgb_color_t c)
     return c;
 }
 
+// 每帧推进亮度缓动：一阶低通，k≈0.18 → 时间常数 ~170ms@30fps
+static inline void brightness_tick(void)
+{
+    float d = s_target_brightness - s_global_brightness;
+    if (d > 0.002f || d < -0.002f) {
+        s_global_brightness += d * 0.18f;
+    } else {
+        s_global_brightness = s_target_brightness;
+    }
+}
+
 // ===================== 统一效果参数（全局风格） =====================
 static led_beat_t s_beat;
-static led_fx_t g_fx = {
+static led_fx_t g_fx = {          // 当前（平滑后），供效果读取
+    .speed = 1.0f,
+    .intensity = 1.0f,
+    .sensitivity = 1.0f,
+    .hue = 0.0f,
+    .color_speed = 1.0f,
+    .beat_react = 0.6f,
+};
+static led_fx_t g_fx_target = {   // 目标，由 params_tick() 平滑逼近
     .speed = 1.0f,
     .intensity = 1.0f,
     .sensitivity = 1.0f,
@@ -49,6 +73,7 @@ static led_fx_t g_fx = {
 
 static float fx_clampf(float v, float lo, float hi)
 {
+    if (!isfinite(v)) return lo;   // 防 NaN/Inf 注入
     if (v < lo) return lo;
     if (v > hi) return hi;
     return v;
@@ -57,31 +82,94 @@ static float fx_clampf(float v, float lo, float hi)
 esp_err_t led_set_fx(const led_fx_t *fx)
 {
     if (!fx) return ESP_ERR_INVALID_ARG;
-    g_fx.speed       = fx_clampf(fx->speed, 0.2f, 3.0f);
-    g_fx.intensity   = fx_clampf(fx->intensity, 0.2f, 2.0f);
-    g_fx.sensitivity = fx_clampf(fx->sensitivity, 0.2f, 4.0f);
+    g_fx_target.speed       = fx_clampf(fx->speed, 0.2f, 3.0f);
+    g_fx_target.intensity   = fx_clampf(fx->intensity, 0.2f, 2.0f);
+    g_fx_target.sensitivity = fx_clampf(fx->sensitivity, 0.2f, 4.0f);
     float h = fx->hue;
+    if (!isfinite(h)) h = 0.0f;
     h -= floorf(h);
-    g_fx.hue = h;
-    g_fx.color_speed = fx_clampf(fx->color_speed, 0.0f, 4.0f);
-    g_fx.beat_react  = fx_clampf(fx->beat_react, 0.0f, 1.0f);
+    g_fx_target.hue = h;
+    g_fx_target.color_speed = fx_clampf(fx->color_speed, 0.0f, 4.0f);
+    g_fx_target.beat_react  = fx_clampf(fx->beat_react, 0.0f, 1.0f);
     return ESP_OK;
 }
 
-const led_fx_t *led_get_fx(void) { return &g_fx; }
+const led_fx_t *led_get_fx(void) { return &g_fx_target; }   // 对外暴露目标值（UI 回读）
 
 static inline float fx_sens(float x)   { return x * g_fx.sensitivity; }
 static inline float fx_inten(float v)  { return v * g_fx.intensity; }
 static inline float fx_hue(float h)    { h += g_fx.hue; h -= floorf(h); return h; }
 static inline float fx_beat(void)      { return s_beat.pulse * g_fx.beat_react; }
 
+// 色相按最短弧插值（避免 0.99→0.01 绕远路）
+static inline float hue_lerp(float cur, float tgt, float k)
+{
+    float d = tgt - cur;
+    if (d > 0.5f) d -= 1.0f;
+    else if (d < -0.5f) d += 1.0f;
+    cur += d * k;
+    cur -= floorf(cur);
+    return cur;
+}
+
 // ===================== 全局后处理管线 =====================
 static float    g_post_gamma     = 1.18f;
 static uint8_t  g_post_gate      = 8;
 static float    g_post_afterglow = 0.62f;
+static float    g_post_gamma_t     = 1.18f;   // 目标值（由 params_tick 平滑）
+static float    g_post_gate_t      = 8.0f;
+static float    g_post_afterglow_t = 0.62f;
 
 typedef struct { uint8_t r, g, b; } post_px_t;
 static post_px_t s_post_prev[256];
+
+// 复位余晖状态（切模式/音源/清空时调用，避免残留拖尾）
+static void reset_trail(void)
+{
+    for (int i = 0; i < 256; i++) {
+        s_post_prev[i].r = 0;
+        s_post_prev[i].g = 0;
+        s_post_prev[i].b = 0;
+    }
+}
+
+// ---- 8bit 输出抖动：Bayer4x4 有序抖动 + 帧相位滚动（消除低亮度色带/台阶）----
+static const uint8_t s_bayer4[4][4] = {
+    {  0,  8,  2, 10 },
+    { 12,  4, 14,  6 },
+    {  3, 11,  1,  9 },
+    { 15,  7, 13,  5 },
+};
+static uint32_t s_dither_frame = 0;
+
+static inline float dither_get(int idx)
+{
+    int bx = idx & 3;
+    int by = ((idx >> 2) + (int)s_dither_frame) & 3;
+    // (n + 0.5)/16 - 0.5  →  [-0.5, 0.5)
+    return (s_bayer4[by][bx] + 0.5f) * (1.0f / 16.0f) - 0.5f;
+}
+
+// 每帧平滑 fx + post 目标值（亮度在 brightness_tick 单独处理）
+static inline void params_tick(void)
+{
+    const float k = 0.15f;
+    g_fx.speed       += (g_fx_target.speed       - g_fx.speed)       * k;
+    g_fx.intensity   += (g_fx_target.intensity   - g_fx.intensity)   * k;
+    g_fx.sensitivity += (g_fx_target.sensitivity - g_fx.sensitivity) * k;
+    g_fx.color_speed += (g_fx_target.color_speed - g_fx.color_speed) * k;
+    g_fx.beat_react  += (g_fx_target.beat_react  - g_fx.beat_react)  * k;
+    g_fx.hue          = hue_lerp(g_fx.hue, g_fx_target.hue, k);
+
+    g_post_gamma     += (g_post_gamma_t     - g_post_gamma)     * k;
+    g_post_afterglow += (g_post_afterglow_t - g_post_afterglow) * k;
+    float g = (float)g_post_gate + (g_post_gate_t - (float)g_post_gate) * k;
+    g_post_gate = (uint8_t)(g + 0.5f);
+
+    // 积分速度相位：位置型效果用相位而非 counter*速度，调速不跳
+    s_anim_phase  += g_fx.speed;
+    s_color_phase += g_fx.color_speed;
+}
 
 static esp_err_t led_out_pixel(int idx, rgb_color_t c)
 {
@@ -102,7 +190,14 @@ static esp_err_t led_out_pixel(int idx, rgb_color_t c)
         p->b = db;
     }
 
-    if (dr < g_post_gate && dg < g_post_gate && db < g_post_gate) {
+    // 噪声门随亮度缩小：低亮度时保留更多暗部细节，避免整段被压黑。
+    // 逐通道清掉低于门限一半的低值（去单通道彩噪），再对整体过暗的像素归零。
+    uint8_t gate = (uint8_t)(g_post_gate * s_global_brightness);
+    uint8_t gcut = gate / 2;
+    if (dr < gcut) dr = 0;
+    if (dg < gcut) dg = 0;
+    if (db < gcut) db = 0;
+    if (dr < gate && dg < gate && db < gate) {
         dr = dg = db = 0;
     }
 
@@ -110,29 +205,35 @@ static esp_err_t led_out_pixel(int idx, rgb_color_t c)
     float rr = powf(fx_inten(dr * inv255), g_post_gamma) * 255.0f * s_global_brightness;
     float rg = powf(fx_inten(dg * inv255), g_post_gamma) * 255.0f * s_global_brightness;
     float rb = powf(fx_inten(db * inv255), g_post_gamma) * 255.0f * s_global_brightness;
-    if (rr > 255.0f) rr = 255.0f;
-    if (rg > 255.0f) rg = 255.0f;
-    if (rb > 255.0f) rb = 255.0f;
+
+    // 8bit 量化前抖动 ±0.5 LSB
+    float dith = dither_get(idx);
+    rr += dith; rg += dith; rb += dith;
+    if (rr < 0.0f) { rr = 0.0f; } else if (rr > 255.0f) { rr = 255.0f; }
+    if (rg < 0.0f) { rg = 0.0f; } else if (rg > 255.0f) { rg = 255.0f; }
+    if (rb < 0.0f) { rb = 0.0f; } else if (rb > 255.0f) { rb = 255.0f; }
 
     return led_strip_set_pixel(strip, idx, (uint8_t)rr, (uint8_t)rg, (uint8_t)rb);
 }
 
 void led_set_post_params(float gamma, uint8_t noise_gate, float afterimage)
 {
+    if (!isfinite(gamma)) gamma = 1.18f;      // 防 NaN/Inf
     if (gamma < 1.0f) gamma = 1.0f;
     if (gamma > 2.5f) gamma = 2.5f;
+    if (!isfinite(afterimage)) afterimage = 0.62f;
     if (afterimage < 0.0f) afterimage = 0.0f;
     if (afterimage > 0.9f) afterimage = 0.9f;
-    g_post_gamma = gamma;
-    g_post_gate = noise_gate;
-    g_post_afterglow = afterimage;
+    g_post_gamma_t     = gamma;               // 只设目标，由 params_tick() 平滑
+    g_post_gate_t      = (float)noise_gate;
+    g_post_afterglow_t = afterimage;
 }
 
 void led_get_post_params(float *gamma, uint8_t *gate, float *afterimage)
 {
-    if (gamma) *gamma = g_post_gamma;
-    if (gate) *gate = g_post_gate;
-    if (afterimage) *afterimage = g_post_afterglow;
+    if (gamma) *gamma = g_post_gamma_t;
+    if (gate) *gate = (uint8_t)(g_post_gate_t + 0.5f);
+    if (afterimage) *afterimage = g_post_afterglow_t;
 }
 
 // ===================== 统一节拍引擎 =====================
@@ -792,6 +893,7 @@ esp_err_t led_controller_init(const led_config_t *config) {
     uint8_t bp = (config->brightness > 100) ? 100 : config->brightness;
     s_brightness_percent = bp;
     s_global_brightness = (float)bp / 100.0f;
+    s_target_brightness = s_global_brightness;   // 启动时就位，不做缓动
 
     init_color_buffer(); // 初始化颜色缓冲区
 
@@ -905,38 +1007,35 @@ static esp_err_t apply_color_buffer(void) {
     return ESP_OK;
 }
 
-// 设置所有LED颜色
+// 设置所有LED颜色（统一走后处理出口，与效果一致的 gamma/亮度/抖动）
 esp_err_t led_set_all(rgb_color_t color) {
     if (!strip) return ESP_ERR_INVALID_STATE;
-    
+
     for (int i = 0; i < led_count; i++) {
-        rgb_color_t out_color = scale_color(color);
-        esp_err_t ret = led_strip_set_pixel(strip, i, out_color.r, out_color.g, out_color.b);
+        esp_err_t ret = led_out_pixel(i, color);
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "设置LED %d 失败: %s", i, esp_err_to_name(ret));
             return ret;
         }
     }
-    
+
     return led_strip_refresh(strip);
 }
 
-// 设置单个LED颜色
+// 设置单个LED颜色（统一走后处理出口）
 esp_err_t led_set_pixel(int index, rgb_color_t color) {
     if (!strip) return ESP_ERR_INVALID_STATE;
     if (index < 0 || index >= led_count) return ESP_ERR_INVALID_ARG;
-    
-    rgb_color_t out_color = scale_color(color);
-    esp_err_t ret = led_strip_set_pixel(strip, index, out_color.r, out_color.g, out_color.b);
-    if (ret != ESP_OK) return ret;
-    
-    return ESP_OK;
+
+    return led_out_pixel(index, color);
 }
 
 // 清空所有LED
 esp_err_t led_clear_all(void) {
     if (!strip) return ESP_ERR_INVALID_STATE;
-    
+
+    reset_trail();   // 同步清余晖状态，避免下一帧闪回旧色
+
     esp_err_t ret = led_strip_clear(strip);
     if (ret != ESP_OK) return ret;
     
@@ -1060,7 +1159,7 @@ esp_err_t led_set_brightness(uint8_t brightness_percent)
     uint8_t p = brightness_percent;
     if (p > 100) p = 100;
     s_brightness_percent = p;
-    s_global_brightness = (float)p / 100.0f;
+    s_target_brightness = (float)p / 100.0f;   // 只设目标，由 brightness_tick() 缓动逼近
     return ESP_OK;
 }
 
@@ -1072,15 +1171,16 @@ uint8_t led_get_brightness(void)
 // 设置模式
 esp_err_t led_set_mode(led_mode_t mode) {
     current_mode = mode;
-    for (int i = 0; i < 256; i++) {
-        s_post_prev[i].r = 0;
-        s_post_prev[i].g = 0;
-        s_post_prev[i].b = 0;
-    }
+    reset_trail();
     s_beat.pulse = 0.0f;
     s_beat.onset = false;
     ESP_LOGI(TAG, "LED模式设置为: %d", mode);
     return ESP_OK;
+}
+
+// 复位余晖状态（对外的线程安全版本：仅写余晖数组，供命令队列在渲染任务内调用）
+void led_reset_trail(void) {
+    reset_trail();
 }
 
 // 弹跳小球（原水波纹槽位）：3 颗球受重力弹跳，鼓点齐跳+错落，落地压扁
@@ -3793,7 +3893,7 @@ static esp_err_t rainbow_effect(float *energy_bands, int num_bands)
     (void)energy_bands;
     (void)num_bands;
     for (int i = 0; i < led_count; i++) {
-        float hue = (float)(i + animation_counter * g_fx.speed / 10.0) / led_count;
+        float hue = ((float)i + s_anim_phase / 10.0f) / led_count;
         hue = hue - (int)hue;
         rgb_color_t color = hsv_to_rgb(hue, 1.0, 0.5);
         led_out_pixel(i, color);
@@ -3835,7 +3935,7 @@ static esp_err_t starfield_effect(float *energy_bands, int num_bands)
         while (s_star[i].pos >= led_count) s_star[i].pos -= led_count;
         if (s_star[i].pos < 0) s_star[i].pos += led_count;
 
-        float twinkle = 0.55f + 0.45f * sinf((float)animation_counter * (0.2f + treble * 0.9f) + s_star[i].tw);
+        float twinkle = 0.55f + 0.45f * sinf((float)animation_counter * 0.2f + treble * 4.0f + s_star[i].tw);
         float bright = s_star[i].size * (0.6f + 0.7f * beat) * twinkle;
         if (bright > 1.0f) bright = 1.0f;
         float sigma = 0.7f + s_star[i].size * 0.8f;
@@ -3955,7 +4055,7 @@ static esp_err_t aurora_effect(float *energy_bands, int num_bands)
         for (int i = 0; i < num_bands; i++) if (energy_bands[i] > mx) mx = energy_bands[i];
         lvl = 0.25f + 0.75f * fminf(mx / 120.0f, 1.0f);
     }
-    float t = (float)animation_counter * 0.05f * g_fx.speed;
+    float t = s_anim_phase * 0.05f;
     for (int i = 0; i < led_count; i++) {
         float x = (float)i / (led_count > 1 ? led_count - 1 : 1);
         float w1 = 0.5f + 0.5f * sinf(x * 6.2832f * 2.0f + t);
@@ -3963,7 +4063,7 @@ static esp_err_t aurora_effect(float *energy_bands, int num_bands)
         float v = (w1 * 0.6f + w2 * 0.4f) * lvl;
         if (v > 1.0f) v = 1.0f;
         float value = 0.04f + 0.96f * v;
-        float hue = x * 0.45f + t * 0.02f * g_fx.color_speed;
+        float hue = x * 0.45f + s_color_phase * 0.001f;
         rgb_color_t color = hsv_to_rgb(hue, 0.85f, value);
         led_out_pixel(i, color);
     }
@@ -4025,6 +4125,10 @@ static const led_effect_entry_t s_led_effects[] = {
 esp_err_t led_update_visualization(float *energy_bands, int num_bands)
 {
     if (!strip) return ESP_ERR_INVALID_STATE;
+
+    brightness_tick();   // 亮度缓动：每帧朝目标平滑逼近
+    params_tick();       // fx/post 参数平滑
+    s_dither_frame++;    // 抖动相位滚动（帧间错位）
 
     if (current_mode != MODE_RAINBOW && current_mode != MODE_STARFIELD &&
         current_mode != MODE_OFF && energy_bands == NULL) {
