@@ -121,7 +121,7 @@ static esp_err_t api_status_handler(httpd_req_t *req) {
         cJSON_AddNumberToObject(fx, "color_speed", st.fx.color_speed);
         cJSON_AddNumberToObject(fx, "beat_react", st.fx.beat_react);
     }
-    cJSON_AddStringToObject(root, "device_name", "EDA-Robot-Pro");
+    cJSON_AddStringToObject(root, "device_name", "Xiaozhi-WiFi-Audio-Light");
     bool auto_follow = eda_visualizer_is_auto_follow();
     eda_audio_src_t src = eda_visualizer_get_audio_source();
     cJSON_AddBoolToObject(root, "auto_follow", auto_follow);
@@ -162,7 +162,7 @@ static esp_err_t api_mode_handler(httpd_req_t *req) {
     core_status_t st; dual_core_com_get_status(&st);
     cJSON *r = cJSON_CreateObject();
     cJSON_AddNumberToObject(r, "mode", st.current_mode);
-    cJSON_AddStringToObject(r, "device_name", "EDA-Robot-Pro");
+    cJSON_AddStringToObject(r, "device_name", "Xiaozhi-WiFi-Audio-Light");
     return send_json(req, r);
 }
 

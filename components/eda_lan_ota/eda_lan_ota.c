@@ -1,5 +1,5 @@
 /*
- * EDA LAN OTA - firmware uploader URI provider for eda-robot-pro.
+ * EDA LAN OTA - firmware uploader URI provider for xiaozhi-wifi-audio-light.
  *
  * Provides /api/ota endpoints and registers them onto the single port-80
  * esp_http_server owned by eda_web_console (mirrors the A-project split of

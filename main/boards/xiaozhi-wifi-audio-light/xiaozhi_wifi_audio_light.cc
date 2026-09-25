@@ -22,7 +22,7 @@
 #include <eda_web_console.h>
 #include <eda_lan_ota.h>
 
-#define TAG "EDARobotPro"
+#define TAG "XiaozhiWifiAudioLight"
 
 extern void InitializeEDARobotDogController();
 #if CONFIG_EDA_AMBIENT_LIGHT
@@ -95,7 +95,7 @@ static void EdaMusicModeGuard(void *arg) {
 }
 #endif
 
-class EDARobotPro : public WifiBoard {
+class XiaozhiWifiAudioLight : public WifiBoard {
 private:
     i2c_master_bus_handle_t display_i2c_bus_;
     esp_lcd_panel_io_handle_t panel_io_ = nullptr;
@@ -197,7 +197,7 @@ private:
     }
 
 public:
-    EDARobotPro() :
+    XiaozhiWifiAudioLight() :
         boot_button_(BOOT_BUTTON_GPIO),
         touch_button_(TOUCH_BUTTON_GPIO){
         // 启动即确认当前镜像有效，避免"未确认 → 重启被 bootloader 回滚成旧固件"
@@ -249,4 +249,4 @@ public:
     }
 };
 
-DECLARE_BOARD(EDARobotPro);
+DECLARE_BOARD(XiaozhiWifiAudioLight);

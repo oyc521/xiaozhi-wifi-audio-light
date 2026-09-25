@@ -40,7 +40,7 @@
 #define STRIP_GPIO      GPIO_NUM_47
 #define STRIP_LED_NUM   30
 
-// EDA机器狗版本
-#define EDA_ROBOT_PRO_VERSION "1.0.0"
+// Xiaozhi WiFi Audio Light 版本
+#define XIAOZHI_WIFI_AUDIO_LIGHT_VERSION "1.0.0"
 
 #endif // _BOARD_CONFIG_H_

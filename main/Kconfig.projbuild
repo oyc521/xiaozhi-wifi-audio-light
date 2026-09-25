@@ -392,8 +392,8 @@ choice BOARD_TYPE
     config BOARD_TYPE_ESP32_S3_1_28_BOX
         bool "Spotpear ESP32-S3-1.28-BOX"
         depends on IDF_TARGET_ESP32S3
-    config BOARD_TYPE_EDA_ROBOT_PRO
-        bool "嘉立创EDA-Robot-PRO"
+    config BOARD_TYPE_XIAOZHI_WIFI_AUDIO_LIGHT
+        bool "Xiaozhi WiFi Audio Light"
         depends on IDF_TARGET_ESP32S3
     config BOARD_TYPE_OTTO_ROBOT
         bool "ottoRobot"
@@ -738,7 +738,7 @@ menu "EDA Robot Pro Development Options"
 
     config EDA_AMBIENT_LIGHT
         bool "AI music ambient light (FFT visualizer on reclaimed servo pin)"
-        depends on BOARD_TYPE_EDA_ROBOT_PRO
+        depends on BOARD_TYPE_XIAOZHI_WIFI_AUDIO_LIGHT
         default y
         help
             Drives a WS2812 strip on the reclaimed left-front-leg pin

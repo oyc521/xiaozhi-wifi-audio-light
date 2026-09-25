@@ -1,5 +1,5 @@
 /*
- * eda_visualizer —— AI 音乐氛围灯引擎（eda-robot-pro 专用）
+ * eda_visualizer —— AI 音乐氛围灯引擎（xiaozhi-wifi-audio-light 专用）
  *
  * 数据流（单任务，低优先级）：
  *   小智麦克风 tap -> audio_processor 环形缓冲 -> FFT(512@16k, 8带)

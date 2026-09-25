@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# 抓取 Windows"正在播放的声音"(WASAPI loopback) -> 单声道 int16 44.1k -> UDP 推给 eda-robot-pro
+# 抓取 Windows"正在播放的声音"(WASAPI loopback) -> 单声道 int16 16k -> UDP 推给 xiaozhi-wifi-audio-light
 # 用法: python wifi_audio_loopback.py [设备IP] [端口]
 #   依赖: pip install pyaudiowpatch numpy
 #   设备端: 氛围灯引擎常驻监听 UDP 5004(音频) / 5005(ESPLED 发现广播)

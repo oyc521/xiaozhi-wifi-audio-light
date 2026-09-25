@@ -6,7 +6,7 @@ extern "C" {
 #endif
 
 /**
- * Owns the single port-80 esp_http_server for the eda-robot-pro dev UI:
+ * Owns the single port-80 esp_http_server for the xiaozhi-wifi-audio-light dev UI:
  * web console root page, /api/... endpoints, /start.bat + /loopback.py,
  * plus OTA (registered from eda_lan_ota).
  *
