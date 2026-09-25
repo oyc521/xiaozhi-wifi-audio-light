@@ -146,6 +146,7 @@ bool eda_visualizer_audio_streaming(void) {
 static bool s_music_mode = false;
 static eda_ai_audio_cb_t s_ai_cb = NULL;
 static int64_t s_stream_lost_us = 0;
+static bool s_prev_streaming = false;
 
 void eda_visualizer_set_ai_audio_cb(eda_ai_audio_cb_t cb) {
     s_ai_cb = cb;
@@ -182,10 +183,15 @@ void eda_visualizer_exit_music_mode(void) {
 }
 
 // 推流变化 -> 自动进入/退出音乐模式（在 vis_task 内调用）
+// 只在"推流上升沿"自动进入：手动退出后，只要流没断就不再自动进入，
+// 否则用户永远退不出音乐模式（流一直推 -> 每帧又自动进）。
 static void music_mode_auto_tick(bool streaming) {
+    bool rising = streaming && !s_prev_streaming;
+    s_prev_streaming = streaming;
+
     if (!s_music_mode) {
-        if (streaming) {
-            ESP_LOGI(TAG, "检测到推流，自动进入音乐模式");
+        if (rising) {
+            ESP_LOGI(TAG, "检测到推流(上升沿)，自动进入音乐模式");
             eda_visualizer_enter_music_mode();
         }
         return;
