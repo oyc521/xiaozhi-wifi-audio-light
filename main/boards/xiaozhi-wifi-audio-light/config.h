@@ -28,15 +28,8 @@
 #define DISPLAY_MIRROR_X false
 #define DISPLAY_MIRROR_Y false
 
-// 机器狗舵机配置 - 四条腿
-#define LEFT_FRONT_LEG_PIN  GPIO_NUM_47  // 左前腿 (已回收给 WS2812 灯带, 见下方 STRIP_GPIO)
-#define LEFT_REAR_LEG_PIN   GPIO_NUM_21 // 左后腿
-#define RIGHT_FRONT_LEG_PIN GPIO_NUM_9   // 右前腿
-#define RIGHT_REAR_LEG_PIN  GPIO_NUM_10 // 右后腿
-
 // WS2812 氛围灯带配置
-// T0: 回收左前腿舵机脚 GPIO47 作灯带数据脚, 左前腿已在控制器里禁用(Init 传 -1)。
-// 接线: WS2812 DIN=GPIO47, 5V 取舵机电源轨并与板子共地, 入口并联 >=1000uF 电容。
+// 接线: WS2812 DIN=GPIO47, 5V 与板共地供电, 入口并联 >=1000uF 电容。
 #define STRIP_GPIO      GPIO_NUM_47
 #define STRIP_LED_NUM   30
 

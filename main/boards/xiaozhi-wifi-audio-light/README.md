@@ -1,8 +1,8 @@
-# EDA Robot Pro - 机器狗配置
+# OYC Robot Pro - 机器狗配置
 
 ## 概述
 
-EDA Robot Pro 是一个基于ESP32-S3的四足机器狗配置，具有以下特性：
+OYC Robot Pro 是一个基于ESP32-S3的四足机器狗配置，具有以下特性：
 
 - 四个舵机控制四条腿（左前腿、左后腿、右前腿、右后腿）
 - SSD1306 128x64 OLED显示屏

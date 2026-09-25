@@ -1,5 +1,5 @@
 /*
- * eda_strip_mcp —— 氛围灯 MCP 工具注册（语音控制入口）
+ * oyc_strip_mcp —— 氛围灯 MCP 工具注册（语音控制入口）
  *
  * 注册后小智云端 AI 才能在工具列表里"看懂"灯效控制意图，
  * 例如"把氛围灯调成烟花模式""亮度调到30%""关灯"。
@@ -10,11 +10,11 @@
 
 #include <esp_log.h>
 
-#include "eda_visualizer.h"
+#include "oyc_visualizer.h"
 #include "led_controller.h"
 #include "mcp_server.h"
 
-#define TAG "EdaStripMcp"
+#define TAG "OycStripMcp"
 
 struct ModeEntry {
     const char* name;
@@ -50,7 +50,7 @@ static const char* mode_to_name(led_mode_t m) {
     return "unknown";
 }
 
-void InitializeEdaStripController() {
+void InitializeOycStripController() {
     auto& mcp = McpServer::GetInstance();
 
     std::string mode_doc = "切换AI氛围灯的灯效模式。mode 取值如下：";
@@ -66,7 +66,7 @@ void InitializeEdaStripController() {
             std::string name = properties["mode"].value<std::string>();
             for (const auto& e : kModes) {
                 if (name == e.name) {
-                    eda_visualizer_set_mode(e.mode);
+                    oyc_visualizer_set_mode(e.mode);
                     ESP_LOGI(TAG, "语音切换灯效: %s", e.name);
                     return std::string("氛围灯已切换到") + e.desc;
                 }
@@ -80,7 +80,7 @@ void InitializeEdaStripController() {
         PropertyList({Property("brightness", kPropertyTypeInteger, 60, 0, 100)}),
         [](const PropertyList& properties) -> ReturnValue {
             int v = properties["brightness"].value<int>();
-            eda_visualizer_set_brightness(v);
+            oyc_visualizer_set_brightness(v);
             ESP_LOGI(TAG, "语音设置亮度: %d%%", v);
             return true;
         });
@@ -90,13 +90,13 @@ void InitializeEdaStripController() {
         "将氛围灯切换到下一种灯效模式（用户说'换个灯效/切换模式'但没有指定具体模式时使用）",
         PropertyList(),
         [](const PropertyList& properties) -> ReturnValue {
-            led_mode_t current = eda_visualizer_get_mode();
+            led_mode_t current = oyc_visualizer_get_mode();
             int idx = -1;
             for (size_t i = 0; i < sizeof(kModes) / sizeof(kModes[0]); i++) {
                 if (kModes[i].mode == current) { idx = (int)i; break; }
             }
             int next = (idx + 1) % (int)(sizeof(kModes) / sizeof(kModes[0]));
-            eda_visualizer_set_mode(kModes[next].mode);
+            oyc_visualizer_set_mode(kModes[next].mode);
             ESP_LOGI(TAG, "语音切换下一模式: %s", kModes[next].name);
             return std::string("氛围灯已切换到") + kModes[next].desc;
         });
@@ -109,7 +109,7 @@ void InitializeEdaStripController() {
         PropertyList({Property("follow", kPropertyTypeBoolean, true)}),
         [](const PropertyList& properties) -> ReturnValue {
             bool follow = properties["follow"].value<bool>();
-            eda_visualizer_set_auto_follow(follow);
+            oyc_visualizer_set_auto_follow(follow);
             ESP_LOGI(TAG, "语音设置自动跟随: %d", (int)follow);
             return follow ? std::string("氛围灯已恢复自动跟随设备状态")
                           : std::string("氛围灯已锁定当前灯效");
@@ -123,10 +123,10 @@ void InitializeEdaStripController() {
         [](const PropertyList& properties) -> ReturnValue {
             std::string src = properties["source"].value<std::string>();
             if (src == "wifi") {
-                eda_visualizer_set_audio_source(EDA_AUDIO_SRC_WIFI);
+                oyc_visualizer_set_audio_source(OYC_AUDIO_SRC_WIFI);
                 return std::string("音乐模式音源已切换为电脑推流");
             }
-            eda_visualizer_set_audio_source(EDA_AUDIO_SRC_MIC);
+            oyc_visualizer_set_audio_source(OYC_AUDIO_SRC_MIC);
             return std::string("音乐模式音源已切换为环境声");
         });
 
@@ -138,12 +138,12 @@ void InitializeEdaStripController() {
         [](const PropertyList& properties) -> ReturnValue {
             bool on = properties["on"].value<bool>();
             if (on) {
-                if (eda_visualizer_enter_music_mode() != ESP_OK) {
+                if (oyc_visualizer_enter_music_mode() != ESP_OK) {
                     return "进入音乐模式失败（WiFi 推流接收器未就绪）";
                 }
                 return "已进入音乐模式：灯光跟随电脑音乐，AI 语音已暂停";
             }
-            eda_visualizer_exit_music_mode();
+            oyc_visualizer_exit_music_mode();
             return "已退出音乐模式：AI 语音已恢复";
         });
 
@@ -153,14 +153,14 @@ void InitializeEdaStripController() {
         PropertyList(),
         [](const PropertyList& properties) -> ReturnValue {
             cJSON* root = cJSON_CreateObject();
-            cJSON_AddStringToObject(root, "mode", mode_to_name(eda_visualizer_get_mode()));
-            cJSON_AddNumberToObject(root, "brightness", eda_visualizer_get_brightness());
-            cJSON_AddBoolToObject(root, "auto_follow", eda_visualizer_is_auto_follow());
+            cJSON_AddStringToObject(root, "mode", mode_to_name(oyc_visualizer_get_mode()));
+            cJSON_AddNumberToObject(root, "brightness", oyc_visualizer_get_brightness());
+            cJSON_AddBoolToObject(root, "auto_follow", oyc_visualizer_is_auto_follow());
             cJSON_AddStringToObject(root, "audio_source",
-                eda_visualizer_get_audio_source() == EDA_AUDIO_SRC_WIFI ? "wifi" : "mic");
-            cJSON_AddBoolToObject(root, "streaming", eda_visualizer_audio_streaming());
-            cJSON_AddBoolToObject(root, "music_mode", eda_visualizer_is_music_mode());
-            cJSON_AddNumberToObject(root, "bpm", eda_visualizer_get_bpm());
+                oyc_visualizer_get_audio_source() == OYC_AUDIO_SRC_WIFI ? "wifi" : "mic");
+            cJSON_AddBoolToObject(root, "streaming", oyc_visualizer_audio_streaming());
+            cJSON_AddBoolToObject(root, "music_mode", oyc_visualizer_is_music_mode());
+            cJSON_AddNumberToObject(root, "bpm", oyc_visualizer_get_bpm());
             return root;
         });
 

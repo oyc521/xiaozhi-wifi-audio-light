@@ -1053,14 +1053,14 @@ CONFIG_USE_AUDIO_PROCESSOR=y
 # end of Camera Configuration
 
 #
-# EDA Robot Pro Development Options
+# OYC Xiaozhi WiFi Audio Light Options
 #
-CONFIG_EDA_DEV_MODE=y
+CONFIG_OYC_DEV_MODE=y
 # default:
-CONFIG_EDA_AMBIENT_LIGHT=y
+CONFIG_OYC_AMBIENT_LIGHT=y
 # default:
-CONFIG_EDA_STRIP_BRIGHTNESS=60
-# end of EDA Robot Pro Development Options
+CONFIG_OYC_STRIP_BRIGHTNESS=60
+# end of OYC Xiaozhi WiFi Audio Light Options
 # end of Xiaozhi Assistant
 
 #

@@ -1,8 +1,8 @@
 /*
- * EDA LAN OTA - firmware uploader URI provider for xiaozhi-wifi-audio-light.
+ * OYC LAN OTA - firmware uploader URI provider for xiaozhi-wifi-audio-light.
  *
  * Provides /api/ota endpoints and registers them onto the single port-80
- * esp_http_server owned by eda_web_console (mirrors the A-project split of
+ * esp_http_server owned by oyc_web_console (mirrors the A-project split of
  * wifi_core(own server) + ota_updater(register only)).
  *
  *   POST/PUT /api/ota  raw "xiaozhi.bin" body -> write inactive OTA partition,
@@ -10,13 +10,13 @@
  *   GET  /api/ota      JSON status (running partition, app version).
  *
  * Rollback: IDF app-rollback is enabled; the new image boots in PENDING_VERIFY.
- * eda_lan_ota_confirm_image() cancels rollback once WiFi is up, and the normal
+ * oyc_lan_ota_confirm_image() cancels rollback once WiFi is up, and the normal
  * xiaozhi boot path (Ota::MarkCurrentVersionValid) confirms as well.
  *
- * Gated behind CONFIG_EDA_DEV_MODE (disable for production).
+ * Gated behind CONFIG_OYC_DEV_MODE (disable for production).
  */
 
-#include "eda_lan_ota.h"
+#include "oyc_lan_ota.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -34,9 +34,9 @@
 
 #include "sdkconfig.h"
 
-#if CONFIG_EDA_DEV_MODE
+#if CONFIG_OYC_DEV_MODE
 
-#define TAG "EDA_LAN_OTA"
+#define TAG "OYC_LAN_OTA"
 #define OTA_RECV_BUF_SIZE 4096
 
 static bool s_ota_busy = false;
@@ -250,7 +250,7 @@ static const httpd_uri_t uri_ota_options = {
     .handler = cors_preflight_handler,
 };
 
-void eda_lan_ota_register(httpd_handle_t server) {
+void oyc_lan_ota_register(httpd_handle_t server) {
     if (server == NULL) return;
     httpd_register_uri_handler(server, &uri_ota_post);
     httpd_register_uri_handler(server, &uri_ota_put);
@@ -262,7 +262,7 @@ void eda_lan_ota_register(httpd_handle_t server) {
 // Cancel pending rollback once the running image proves it can reach the network.
 // esp_ota_mark_app_valid_cancel_rollback() is safe to call repeatedly.
 // ------------------------------------------------------------------
-void eda_lan_ota_confirm_image(void) {
+void oyc_lan_ota_confirm_image(void) {
     const esp_partition_t *running = esp_ota_get_running_partition();
     esp_ota_img_states_t state;
     if (running && esp_ota_get_state_partition(running, &state) == ESP_OK) {
@@ -273,9 +273,9 @@ void eda_lan_ota_confirm_image(void) {
     }
 }
 
-#else  // !CONFIG_EDA_DEV_MODE
+#else  // !CONFIG_OYC_DEV_MODE
 
-void eda_lan_ota_register(httpd_handle_t server) { (void)server; }
-void eda_lan_ota_confirm_image(void) {}
+void oyc_lan_ota_register(httpd_handle_t server) { (void)server; }
+void oyc_lan_ota_confirm_image(void) {}
 
 #endif

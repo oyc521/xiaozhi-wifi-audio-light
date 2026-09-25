@@ -7,8 +7,8 @@
 #include "config.h"
 #include "mcp_server.h"
 #include "led/led.h"
-#if CONFIG_EDA_AMBIENT_LIGHT
-#include "eda_visualizer.h"
+#if CONFIG_OYC_AMBIENT_LIGHT
+#include "oyc_visualizer.h"
 #else
 #include "led/circular_strip.h"
 #endif
@@ -19,25 +19,24 @@
 #include <esp_lcd_panel_ops.h>
 #include <esp_lcd_panel_vendor.h>
 #include <esp_timer.h>
-#include <eda_web_console.h>
-#include <eda_lan_ota.h>
+#include <oyc_web_console.h>
+#include <oyc_lan_ota.h>
 
 #define TAG "XiaozhiWifiAudioLight"
 
-extern void InitializeEDARobotDogController();
-#if CONFIG_EDA_AMBIENT_LIGHT
-extern void InitializeEdaStripController();
+#if CONFIG_OYC_AMBIENT_LIGHT
+extern void InitializeOycStripController();
 #endif
 
-#if CONFIG_EDA_AMBIENT_LIGHT
+#if CONFIG_OYC_AMBIENT_LIGHT
 // 麦克风 PCM 抽头：不新增 I2S，直接转发给氛围灯 FFT 引擎
-class EdaAudioCodecSimplex : public NoAudioCodecSimplex {
+class OycAudioCodecSimplex : public NoAudioCodecSimplex {
 public:
     using NoAudioCodecSimplex::NoAudioCodecSimplex;
     virtual bool InputData(std::vector<int16_t>& data) override {
         bool ok = NoAudioCodecSimplex::InputData(data);
         if (ok && !data.empty()) {
-            eda_visualizer_feed(data.data(), (int)data.size());
+            oyc_visualizer_feed(data.data(), (int)data.size());
         }
         return ok;
     }
@@ -45,16 +44,16 @@ public:
 
 // 设备状态 -> 灯效场景（application.cc 在状态变化时调用 OnStateChanged）
 // 走 set_mode_auto：用户语音指定模式（锁定）后，这些切换不再覆盖
-class EdaAmbientLed : public Led {
+class OycAmbientLed : public Led {
 public:
     virtual void OnStateChanged() override {
         switch (Application::GetInstance().GetDeviceState()) {
         case kDeviceStateWifiConfiguring:
         case kDeviceStateConnecting:
-            eda_visualizer_set_mode_auto(MODE_AURORA);        // 联网中 = 极光
+            oyc_visualizer_set_mode_auto(MODE_AURORA);        // 联网中 = 极光
             break;
         case kDeviceStateUpgrading:
-            eda_visualizer_set_mode_auto(MODE_RHYTHM_BREATH); // 升级中 = 呼吸
+            oyc_visualizer_set_mode_auto(MODE_RHYTHM_BREATH); // 升级中 = 呼吸
             break;
         default:
             break;   // 其余状态由情绪灯（SetEmotion）驱动
@@ -63,7 +62,7 @@ public:
 };
 
 // 音乐模式互斥：暂停/恢复小智的唤醒词与语音识别
-static void EdaAiAudioToggle(bool enable) {
+static void OycAiAudioToggle(bool enable) {
     auto& audio = Application::GetInstance().GetAudioService();
     if (enable) {
         audio.EnableWakeWordDetection(true);
@@ -78,8 +77,8 @@ static void EdaAiAudioToggle(bool enable) {
 // 周期守卫：音乐模式期间持续压制 AI —— 因为小智回到 idle 时会自己
 // 重新 EnableWakeWordDetection(true)（application.cc:685-689），必须周期性重申。
 static esp_timer_handle_t s_music_guard_timer = nullptr;
-static void EdaMusicModeGuard(void *arg) {
-    if (!eda_visualizer_is_music_mode()) return;
+static void OycMusicModeGuard(void *arg) {
+    if (!oyc_visualizer_is_music_mode()) return;
     auto& audio = Application::GetInstance().GetAudioService();
     if (audio.IsAudioProcessorRunning()) audio.EnableVoiceProcessing(false);
     if (audio.IsWakeWordRunning()) audio.EnableWakeWordDetection(false);
@@ -91,21 +90,21 @@ public:
     using OledDisplay::OledDisplay;
     void SetEmotion(const char* emotion) override {
         OledDisplay::SetEmotion(emotion);
-        eda_visualizer_set_emotion(emotion);
+        oyc_visualizer_set_emotion(emotion);
     }
 };
 
 // 环境声音源：音乐模式下 AI 已暂停、AFE 不再读麦，由我们自读 codec 喂给可视化。
 // （此时没有其它读者，不会与小智争抢同一路 I2S）
-static void EdaAmbientMicTask(void *arg) {
+static void OycAmbientMicTask(void *arg) {
     auto codec = Board::GetInstance().GetAudioCodec();
     if (codec == nullptr) { vTaskDelete(NULL); return; }
     std::vector<int16_t> buf(512);
     while (true) {
-        if (eda_visualizer_wants_ambient_mic()) {
+        if (oyc_visualizer_wants_ambient_mic()) {
             if (!codec->input_enabled()) codec->EnableInput(true);
             if (codec->InputData(buf) && !buf.empty()) {
-                eda_visualizer_feed(buf.data(), (int)buf.size());
+                oyc_visualizer_feed(buf.data(), (int)buf.size());
             }
         } else {
             vTaskDelay(pdMS_TO_TICKS(30));
@@ -122,7 +121,7 @@ private:
     Display* display_ = nullptr;
     Button boot_button_;
     Button touch_button_;
-#if CONFIG_EDA_AMBIENT_LIGHT
+#if CONFIG_OYC_AMBIENT_LIGHT
     Led* ambient_led_ = nullptr;
 #else
     CircularStrip* strip_ = nullptr;
@@ -188,7 +187,7 @@ private:
         ESP_LOGI(TAG, "Turning display on");
         ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_, true));
 
-#if CONFIG_EDA_AMBIENT_LIGHT
+#if CONFIG_OYC_AMBIENT_LIGHT
         display_ = new XiaozhiOledDisplay(panel_io_, panel_, DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y);
 #else
         display_ = new OledDisplay(panel_io_, panel_, DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y);
@@ -196,17 +195,12 @@ private:
     }
 
 
-    // EDA机器狗控制器初始化
-    void InitializeEDARobotDogController() {
-        ESP_LOGI(TAG, "初始化EDA机器狗MCP控制器");
-        ::InitializeEDARobotDogController();
-    }
     void InitializeButtons() {
 
         touch_button_.OnPressDown([this]() {
-#if CONFIG_EDA_AMBIENT_LIGHT
-            if (eda_visualizer_is_music_mode()) {
-                eda_visualizer_exit_music_mode();   // TOUCH 键 = 退出音乐模式
+#if CONFIG_OYC_AMBIENT_LIGHT
+            if (oyc_visualizer_is_music_mode()) {
+                oyc_visualizer_exit_music_mode();   // TOUCH 键 = 退出音乐模式
                 return;
             }
 #endif
@@ -225,31 +219,30 @@ public:
         touch_button_(TOUCH_BUTTON_GPIO){
         // 启动即确认当前镜像有效，避免"未确认 → 重启被 bootloader 回滚成旧固件"
         // （旧逻辑确认点在联网后的 CheckNewVersion，无网时永远确认不了）
-        eda_lan_ota_confirm_image();
+        oyc_lan_ota_confirm_image();
         InitializeDisplayI2c();
         InitializeSsd1306Display();
-        InitializeEDARobotDogController();
         InitializeButtons();
-#if CONFIG_EDA_AMBIENT_LIGHT
-        ambient_led_ = new EdaAmbientLed();
-        eda_visualizer_start(STRIP_GPIO, STRIP_LED_NUM, CONFIG_EDA_STRIP_BRIGHTNESS);
-        eda_visualizer_set_ai_audio_cb(EdaAiAudioToggle);
+#if CONFIG_OYC_AMBIENT_LIGHT
+        ambient_led_ = new OycAmbientLed();
+        oyc_visualizer_start(STRIP_GPIO, STRIP_LED_NUM, CONFIG_OYC_STRIP_BRIGHTNESS);
+        oyc_visualizer_set_ai_audio_cb(OycAiAudioToggle);
         // 环境声子模式：需要时自读麦克风喂可视化
-        xTaskCreatePinnedToCore(EdaAmbientMicTask, "eda_amic", 4096, nullptr, 3, nullptr, 1);
+        xTaskCreatePinnedToCore(OycAmbientMicTask, "oyc_amic", 4096, nullptr, 3, nullptr, 1);
         // 音乐模式期间每秒重申一次"暂停 AI"，防止小智回 idle 时自恢复唤醒
-        esp_timer_create_args_t guard_args = { .callback = EdaMusicModeGuard, .name = "music_guard" };
+        esp_timer_create_args_t guard_args = { .callback = OycMusicModeGuard, .name = "music_guard" };
         esp_timer_create(&guard_args, &s_music_guard_timer);
         esp_timer_start_periodic(s_music_guard_timer, 1000 * 1000);
-        InitializeEdaStripController();
+        InitializeOycStripController();
 #else
         strip_ = new CircularStrip(STRIP_GPIO, STRIP_LED_NUM);
 #endif
-        eda_web_console_init();
+        oyc_web_console_init();
     }
 
 
     virtual Led* GetLed() override {
-#if CONFIG_EDA_AMBIENT_LIGHT
+#if CONFIG_OYC_AMBIENT_LIGHT
         return ambient_led_;
 #else
         return strip_;
@@ -259,8 +252,8 @@ public:
 
 
     virtual AudioCodec* GetAudioCodec() override {
-#if CONFIG_EDA_AMBIENT_LIGHT
-        static EdaAudioCodecSimplex audio_codec(AUDIO_INPUT_SAMPLE_RATE, AUDIO_OUTPUT_SAMPLE_RATE,
+#if CONFIG_OYC_AMBIENT_LIGHT
+        static OycAudioCodecSimplex audio_codec(AUDIO_INPUT_SAMPLE_RATE, AUDIO_OUTPUT_SAMPLE_RATE,
             AUDIO_I2S_SPK_GPIO_BCLK, AUDIO_I2S_SPK_GPIO_LRCK, AUDIO_I2S_SPK_GPIO_DOUT, AUDIO_I2S_MIC_GPIO_SCK, AUDIO_I2S_MIC_GPIO_WS, AUDIO_I2S_MIC_GPIO_DIN);
 #else
         static NoAudioCodecSimplex audio_codec(AUDIO_INPUT_SAMPLE_RATE, AUDIO_OUTPUT_SAMPLE_RATE,

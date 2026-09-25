@@ -1,8 +1,8 @@
-idf_component_register(SRCS "eda_web_console.c"
+idf_component_register(SRCS "oyc_web_console.c"
                        INCLUDE_DIRS "include"
                        EMBED_TXTFILES "assets/console.html" "assets/loopback.py"
-                       REQUIRES eda_lan_ota
-                                eda_visualizer
+                       REQUIRES oyc_lan_ota
+                                oyc_visualizer
                                 dual_core_com
                                 led_controller
                                 wifi_audio

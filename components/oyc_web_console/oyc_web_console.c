@@ -1,15 +1,15 @@
 /*
- * eda_web_console —— 单实例 80 端口 Web 控制台（开发用途）
+ * oyc_web_console —— 单实例 80 端口 Web 控制台（开发用途）
  *
  * 拥有唯一的 esp_http_server，注册：控制台页面 / API / 一键推流脚本 / OTA。
  * 仅在 STA 拿到 IP 后启动、断开即停，因此 AP 配网门户(也占80)永不冲突。
  *
  * 后端契约与 FFTvisiual1.0ws2812b 的 wifi_core 对齐，直接复用其 console.html，
- * 所有参数修改统一走 eda_visualizer(入队)，遵守单一数据源纪律。
+ * 所有参数修改统一走 oyc_visualizer(入队)，遵守单一数据源纪律。
  *
- * 受 CONFIG_EDA_DEV_MODE 控制（量产关闭）。
+ * 受 CONFIG_OYC_DEV_MODE 控制（量产关闭）。
  */
-#include "eda_web_console.h"
+#include "oyc_web_console.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -28,16 +28,16 @@
 #include "esp_wifi.h"
 
 #include "dual_core_com.h"
-#include "eda_lan_ota.h"
-#include "eda_visualizer.h"
+#include "oyc_lan_ota.h"
+#include "oyc_visualizer.h"
 #include "led_controller.h"
 #include "wifi_audio.h"
 
 #include "sdkconfig.h"
 
-#if CONFIG_EDA_DEV_MODE
+#if CONFIG_OYC_DEV_MODE
 
-#define TAG "EDA_WEB"
+#define TAG "OYC_WEB"
 #define CONSOLE_PORT 80
 #define SPEC_BANDS   32
 
@@ -105,8 +105,8 @@ static esp_err_t api_status_handler(httpd_req_t *req) {
     cJSON_AddBoolToObject(root, "wifi_connected", true);   // server 只在拿到 IP 后才运行
     cJSON_AddNumberToObject(root, "frame_count", st.led_frame_count);
     cJSON_AddNumberToObject(root, "free_heap", esp_get_free_heap_size());
-    cJSON_AddNumberToObject(root, "brightness", eda_visualizer_get_brightness());
-    cJSON_AddNumberToObject(root, "bpm", eda_visualizer_get_bpm());
+    cJSON_AddNumberToObject(root, "brightness", oyc_visualizer_get_brightness());
+    cJSON_AddNumberToObject(root, "bpm", oyc_visualizer_get_bpm());
     cJSON_AddNumberToObject(root, "pulse", st.pulse);
     cJSON_AddNumberToObject(root, "energy", st.energy);
     cJSON_AddNumberToObject(root, "gamma", st.gamma);
@@ -122,12 +122,12 @@ static esp_err_t api_status_handler(httpd_req_t *req) {
         cJSON_AddNumberToObject(fx, "beat_react", st.fx.beat_react);
     }
     cJSON_AddStringToObject(root, "device_name", "Xiaozhi-WiFi-Audio-Light");
-    bool auto_follow = eda_visualizer_is_auto_follow();
-    eda_audio_src_t src = eda_visualizer_get_audio_source();
+    bool auto_follow = oyc_visualizer_is_auto_follow();
+    oyc_audio_src_t src = oyc_visualizer_get_audio_source();
     cJSON_AddBoolToObject(root, "auto_follow", auto_follow);
-    cJSON_AddStringToObject(root, "source", src == EDA_AUDIO_SRC_WIFI ? "wifi" : "mic");
+    cJSON_AddStringToObject(root, "source", src == OYC_AUDIO_SRC_WIFI ? "wifi" : "mic");
     cJSON_AddBoolToObject(root, "wifi_streaming", wifi_audio_streaming());
-    cJSON_AddBoolToObject(root, "music_mode", eda_visualizer_is_music_mode());
+    cJSON_AddBoolToObject(root, "music_mode", oyc_visualizer_is_music_mode());
 
     const esp_app_desc_t *app = esp_app_get_description();
     if (app) {
@@ -151,7 +151,7 @@ static esp_err_t api_mode_handler(httpd_req_t *req) {
             cJSON_AddStringToObject(r, "error", "mode out of range");
             return send_json(req, r);
         }
-        eda_visualizer_set_mode((led_mode_t)m);   // 显式操作，自动锁定跟随
+        oyc_visualizer_set_mode((led_mode_t)m);   // 显式操作，自动锁定跟随
         core_status_t st; dual_core_com_get_status(&st);
         cJSON *r = cJSON_CreateObject();
         cJSON_AddBoolToObject(r, "success", true);
@@ -176,14 +176,14 @@ static esp_err_t api_brightness_handler(httpd_req_t *req) {
             cJSON_AddStringToObject(r, "error", "out of range 0-100");
             return send_json(req, r);
         }
-        eda_visualizer_set_brightness(v);
+        oyc_visualizer_set_brightness(v);
         cJSON *r = cJSON_CreateObject();
         cJSON_AddBoolToObject(r, "success", true);
         cJSON_AddNumberToObject(r, "brightness", v);
         return send_json(req, r);
     }
     cJSON *r = cJSON_CreateObject();
-    cJSON_AddNumberToObject(r, "brightness", eda_visualizer_get_brightness());
+    cJSON_AddNumberToObject(r, "brightness", oyc_visualizer_get_brightness());
     return send_json(req, r);
 }
 
@@ -195,17 +195,17 @@ static esp_err_t api_command_handler(httpd_req_t *req) {
         char cmd[24] = {0};
         if (httpd_query_key_value(q, "cmd", cmd, sizeof(cmd)) == ESP_OK) {
             if (!strcmp(cmd, "brightness_up")) {
-                eda_visualizer_set_brightness(eda_visualizer_get_brightness() + 10); ok = true;
+                oyc_visualizer_set_brightness(oyc_visualizer_get_brightness() + 10); ok = true;
             } else if (!strcmp(cmd, "brightness_down")) {
-                eda_visualizer_set_brightness(eda_visualizer_get_brightness() - 10); ok = true;
+                oyc_visualizer_set_brightness(oyc_visualizer_get_brightness() - 10); ok = true;
             } else if (!strcmp(cmd, "test_rainbow")) {
-                eda_visualizer_set_mode(MODE_RAINBOW); ok = true;
+                oyc_visualizer_set_mode(MODE_RAINBOW); ok = true;
             } else if (!strcmp(cmd, "clear_all")) {
-                eda_visualizer_set_mode(MODE_OFF); ok = true;
+                oyc_visualizer_set_mode(MODE_OFF); ok = true;
             } else if (!strcmp(cmd, "auto_on")) {
-                eda_visualizer_set_auto_follow(true); ok = true;
+                oyc_visualizer_set_auto_follow(true); ok = true;
             } else if (!strcmp(cmd, "auto_off")) {
-                eda_visualizer_set_auto_follow(false); ok = true;
+                oyc_visualizer_set_auto_follow(false); ok = true;
             }
         }
         (void)ok;
@@ -219,14 +219,14 @@ static esp_err_t api_command_handler(httpd_req_t *req) {
 static esp_err_t api_auto_handler(httpd_req_t *req) {
     if (req->method == HTTP_POST || req->method == HTTP_PUT) {
         int v = (int)qs_float(req, "follow", -1);
-        if (v == 0 || v == 1) eda_visualizer_set_auto_follow(v == 1);
+        if (v == 0 || v == 1) oyc_visualizer_set_auto_follow(v == 1);
         cJSON *r = cJSON_CreateObject();
         cJSON_AddBoolToObject(r, "success", (v == 0 || v == 1));
-        cJSON_AddBoolToObject(r, "auto_follow", eda_visualizer_is_auto_follow());
+        cJSON_AddBoolToObject(r, "auto_follow", oyc_visualizer_is_auto_follow());
         return send_json(req, r);
     }
     cJSON *r = cJSON_CreateObject();
-    cJSON_AddBoolToObject(r, "auto_follow", eda_visualizer_is_auto_follow());
+    cJSON_AddBoolToObject(r, "auto_follow", oyc_visualizer_is_auto_follow());
     return send_json(req, r);
 }
 
@@ -242,7 +242,7 @@ static esp_err_t api_post_handler(httpd_req_t *req) {
         if (gate > 64) {
             gate = 64;
         }
-        eda_visualizer_set_post(gamma, (uint8_t)gate, after);
+        oyc_visualizer_set_post(gamma, (uint8_t)gate, after);
     }
     core_status_t st; dual_core_com_get_status(&st);
     cJSON *r = cJSON_CreateObject();
@@ -268,7 +268,7 @@ static esp_err_t api_fx_handler(httpd_req_t *req) {
             fx.hue         = qs_float(req, "hue", fx.hue);
             fx.color_speed = qs_float(req, "color_speed", fx.color_speed);
             fx.beat_react  = qs_float(req, "beat_react", fx.beat_react);
-            eda_visualizer_set_fx(&fx);
+            oyc_visualizer_set_fx(&fx);
         }
     }
     core_status_t st; dual_core_com_get_status(&st);
@@ -286,7 +286,7 @@ static esp_err_t api_fx_handler(httpd_req_t *req) {
 // ---------------- /api/spectrum (32 段) ----------------
 static esp_err_t api_spectrum_handler(httpd_req_t *req) {
     uint8_t bands[SPEC_BANDS];
-    eda_visualizer_get_spectrum(bands);
+    oyc_visualizer_get_spectrum(bands);
     cJSON *r = cJSON_CreateObject();
     cJSON *arr = cJSON_AddArrayToObject(r, "bands");
     for (int i = 0; i < SPEC_BANDS; i++)
@@ -301,13 +301,13 @@ static esp_err_t api_source_handler(httpd_req_t *req) {
         if (httpd_req_get_url_query_str(req, q, sizeof(q)) == ESP_OK) {
             char s[8] = {0};
             if (httpd_query_key_value(q, "src", s, sizeof(s)) == ESP_OK) {
-                eda_visualizer_set_audio_source(!strcmp(s, "wifi") ? EDA_AUDIO_SRC_WIFI : EDA_AUDIO_SRC_MIC);
+                oyc_visualizer_set_audio_source(!strcmp(s, "wifi") ? OYC_AUDIO_SRC_WIFI : OYC_AUDIO_SRC_MIC);
             }
         }
     }
     cJSON *r = cJSON_CreateObject();
     cJSON_AddStringToObject(r, "source",
-        eda_visualizer_get_audio_source() == EDA_AUDIO_SRC_WIFI ? "wifi" : "mic");
+        oyc_visualizer_get_audio_source() == OYC_AUDIO_SRC_WIFI ? "wifi" : "mic");
     cJSON_AddBoolToObject(r, "streaming", wifi_audio_streaming());
     char ip[16] = {0};
     if (sta_ip(ip, sizeof(ip))) cJSON_AddStringToObject(r, "ip", ip);
@@ -320,16 +320,16 @@ static esp_err_t api_music_handler(httpd_req_t *req) {
     if (req->method == HTTP_POST || req->method == HTTP_PUT) {
         int on = (int)qs_float(req, "on", -1);
         if (on == 1) {
-            eda_visualizer_enter_music_mode();
+            oyc_visualizer_enter_music_mode();
         } else if (on == 0) {
-            eda_visualizer_exit_music_mode();
+            oyc_visualizer_exit_music_mode();
         }
     }
     cJSON *r = cJSON_CreateObject();
-    cJSON_AddBoolToObject(r, "music_mode", eda_visualizer_is_music_mode());
+    cJSON_AddBoolToObject(r, "music_mode", oyc_visualizer_is_music_mode());
     cJSON_AddBoolToObject(r, "streaming", wifi_audio_streaming());
     cJSON_AddStringToObject(r, "source",
-        eda_visualizer_get_audio_source() == EDA_AUDIO_SRC_WIFI ? "wifi" : "mic");
+        oyc_visualizer_get_audio_source() == OYC_AUDIO_SRC_WIFI ? "wifi" : "mic");
     return send_json(req, r);
 }
 
@@ -402,7 +402,7 @@ static esp_err_t start_server(void) {
     REG_GET("/loopback.py", loopback_py_handler);
     REG_GET("/start.bat", start_bat_handler);
 
-    eda_lan_ota_register(s_server);   // /api/ota
+    oyc_lan_ota_register(s_server);   // /api/ota
 
     char ip[16] = {0};
     sta_ip(ip, sizeof(ip));
@@ -432,7 +432,7 @@ static void console_worker(void *arg) {
             stop_server();
         }
         if (acts & ACT_GOT_IP) {
-            eda_lan_ota_confirm_image();
+            oyc_lan_ota_confirm_image();
             start_server();
         }
     }
@@ -446,17 +446,17 @@ static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *da
     xTaskNotify(s_worker, ACT_STA_DOWN, eSetBits);
 }
 
-void eda_web_console_init(void) {
+void oyc_web_console_init(void) {
     if (s_worker == NULL) {
-        xTaskCreate(console_worker, "eda_webw", 6144, NULL, 4, &s_worker);
+        xTaskCreate(console_worker, "oyc_webw", 6144, NULL, 4, &s_worker);
     }
     esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &on_ip_got, NULL);
     esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &on_wifi_event, NULL);
-    ESP_LOGI(TAG, "Web console initialized (CONFIG_EDA_DEV_MODE=y)");
+    ESP_LOGI(TAG, "Web console initialized (CONFIG_OYC_DEV_MODE=y)");
 }
 
-#else  // !CONFIG_EDA_DEV_MODE
+#else  // !CONFIG_OYC_DEV_MODE
 
-void eda_web_console_init(void) {}
+void oyc_web_console_init(void) {}
 
 #endif

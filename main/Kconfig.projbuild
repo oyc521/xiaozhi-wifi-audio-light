@@ -722,9 +722,9 @@ menu "TAIJIPAI_S3_CONFIG"
         启动双声道
 endmenu
 
-menu "EDA Robot Pro Development Options"
+menu "OYC Xiaozhi WiFi Audio Light Options"
 
-    config EDA_DEV_MODE
+    config OYC_DEV_MODE
         bool "Enable developer mode (web console + LAN OTA upload)"
         default n
         help
@@ -736,7 +736,7 @@ menu "EDA Robot Pro Development Options"
             The server stops while disconnected, so port 80 stays free for the
             WiFi provisioning captive portal. Turn OFF for production firmware.
 
-    config EDA_AMBIENT_LIGHT
+    config OYC_AMBIENT_LIGHT
         bool "AI music ambient light (FFT visualizer on reclaimed servo pin)"
         depends on BOARD_TYPE_XIAOZHI_WIFI_AUDIO_LIGHT
         default y
@@ -745,9 +745,9 @@ menu "EDA Robot Pro Development Options"
             (GPIO47) with the ported FFT/beat/light-effect engine.
             Audio is tapped from the mic PCM; device state switches scenes.
 
-    config EDA_STRIP_BRIGHTNESS
+    config OYC_STRIP_BRIGHTNESS
         int "Ambient strip default brightness (percent)"
-        depends on EDA_AMBIENT_LIGHT
+        depends on OYC_AMBIENT_LIGHT
         range 10 100
         default 60
         help
