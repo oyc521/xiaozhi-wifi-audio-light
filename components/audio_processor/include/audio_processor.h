@@ -9,7 +9,7 @@ extern "C" {
 #endif
 
 // FFT配置
-#define FFT_SIZE          512      // FFT点数
+#define FFT_SIZE          1024     // FFT点数（16kHz→15.625Hz/bin，低频段可分）
 #define FFT_OUTPUT_SIZE   (FFT_SIZE / 2)  // 输出点数（对称）
 #ifndef NUM_FREQ_BANDS
 #define NUM_FREQ_BANDS    32       // 频带数量（与 led_controller 的 32 段显示谱对齐）

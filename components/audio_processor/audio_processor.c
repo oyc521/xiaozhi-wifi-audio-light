@@ -129,14 +129,22 @@ static esp_err_t fft_process_frame(fft_processor_t *processor, int16_t *buf) {
 
     processor->total_energy = 0;
 
+    // 把 FFT bin 连续分配给各频带（bin→band）：
+    //   1) 每段与上一段不重叠（start >= prev_end）
+    //   2) 每段至少覆盖 1 个 bin（end > start），避免低频段带宽 < 1 个 bin 时 count=0 恒为 0
+    //   3) 跳过 DC(bin0)，避免直流泄漏污染最低频段
+    int prev_end = 1;
     for (int band = 0; band < NUM_FREQ_BANDS; band++) {
+        int start_bin = (int)(band_edges[band] / freq_resolution);
+        int end_bin   = (int)(band_edges[band + 1] / freq_resolution);
+
+        if (start_bin < prev_end) start_bin = prev_end;      // 不与上一段重叠
+        if (start_bin > FFT_OUTPUT_SIZE - 1) start_bin = FFT_OUTPUT_SIZE - 1;
+        if (end_bin <= start_bin) end_bin = start_bin + 1;   // 至少覆盖 1 个 bin
+        if (end_bin > FFT_OUTPUT_SIZE) end_bin = FFT_OUTPUT_SIZE;
+
         float band_energy = 0;
         int count = 0;
-        int start_bin = (int)(band_edges[band] / freq_resolution);
-        int end_bin = (int)(band_edges[band + 1] / freq_resolution);
-        start_bin = (start_bin < 0) ? 0 : start_bin;
-        end_bin = (end_bin > FFT_OUTPUT_SIZE) ? FFT_OUTPUT_SIZE : end_bin;
-
         for (int bin = start_bin; bin < end_bin; bin++) {
             band_energy += fft_magnitude[bin];
             count++;
@@ -149,6 +157,8 @@ static esp_err_t fft_process_frame(fft_processor_t *processor, int16_t *buf) {
         processor->frequency_bands[band] =
             0.2f * processor->frequency_bands[band] + 0.8f * band_energy;
         processor->total_energy += processor->frequency_bands[band];
+
+        prev_end = end_bin;
     }
 
     if (processor->total_energy > 0) {
