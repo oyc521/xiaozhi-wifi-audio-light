@@ -1,0 +1,302 @@
+/*
+ * eda_visualizer —— AI 音乐氛围灯引擎（eda-robot-pro 专用）
+ *
+ * 数据流（单任务，低优先级）：
+ *   小智麦克风 tap -> audio_processor 环形缓冲 -> FFT(512@16k, 8带)
+ *     -> led_controller 统一节拍引擎 + 18 种灯效 + 后处理
+ *     -> WS2812 (回收的舵机 GPIO, led_strip/RMT)
+ *
+ * 单一数据源纪律：外部（Web 控制台 / MCP / 情绪钩子）一律通过
+ * dual_core_com 命令队列修改参数，渲染任务内串行消费，无锁无竞态。
+ */
+#include "eda_visualizer.h"
+
+#include <stdlib.h>
+#include <string.h>
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "esp_log.h"
+#include "esp_timer.h"
+#include "esp_event.h"
+#include "esp_netif.h"
+
+#include "audio_processor.h"
+#include "dual_core_com.h"
+#include "wifi_audio.h"
+
+static const char *TAG = "EDA_VIS";
+
+#define VIS_FPS_MS 33   // ~30fps，与 A 仓库一致（512@16k=31.25 帧/s 数据率）
+#define WIFI_AUDIO_UDP_PORT 5004
+
+static fft_processor_t s_fft;
+static bool s_started = false;
+static led_mode_t s_current_mode = MODE_SPECTRUM;
+static uint32_t s_frame_count = 0;
+static bool s_auto_follow = true;
+static eda_audio_src_t s_audio_src = EDA_AUDIO_SRC_MIC;
+static bool s_wifi_rx_up = false;
+static int16_t s_wifi_frame[FFT_SIZE];
+
+// ---------------- 命令投递 ----------------
+
+static void post_command(const core_command_t *cmd) {
+    dual_core_com_send_command((core_command_t *)cmd, pdMS_TO_TICKS(50));
+}
+
+// 用户显式指定模式：同时关闭自动跟随，状态切换不再覆盖
+void eda_visualizer_set_mode(led_mode_t mode) {
+    s_auto_follow = false;
+    core_command_t cmd = { .type = CMD_MODE_CHANGE };
+    cmd.data.mode = mode;
+    post_command(&cmd);
+}
+
+// 状态驱动的模式切换：仅在自动跟随开启时生效
+void eda_visualizer_set_mode_auto(led_mode_t mode) {
+    if (!s_auto_follow) return;
+    core_command_t cmd = { .type = CMD_MODE_CHANGE };
+    cmd.data.mode = mode;
+    post_command(&cmd);
+}
+
+void eda_visualizer_set_auto_follow(bool follow) {
+    s_auto_follow = follow;
+    ESP_LOGI(TAG, "自动跟随设备状态: %s", follow ? "开" : "关");
+}
+
+bool eda_visualizer_is_auto_follow(void) {
+    return s_auto_follow;
+}
+
+void eda_visualizer_set_brightness(int percent) {
+    if (percent < 0) percent = 0;
+    if (percent > 100) percent = 100;
+    core_command_t cmd = { .type = CMD_BRIGHTNESS_SET };
+    cmd.data.param.value = percent;
+    post_command(&cmd);
+}
+
+void eda_visualizer_set_post(float gamma, uint8_t noise_gate, float afterimage) {
+    core_command_t cmd = { .type = CMD_POST_SET };
+    cmd.data.post.gamma = gamma;
+    cmd.data.post.gate = noise_gate;
+    cmd.data.post.afterimage = afterimage;
+    post_command(&cmd);
+}
+
+void eda_visualizer_set_fx(const led_fx_t *fx) {
+    core_command_t cmd = { .type = CMD_FX_SET };
+    cmd.data.fx.speed = fx->speed;
+    cmd.data.fx.intensity = fx->intensity;
+    cmd.data.fx.sensitivity = fx->sensitivity;
+    cmd.data.fx.hue = fx->hue;
+    cmd.data.fx.color_speed = fx->color_speed;
+    cmd.data.fx.beat_react = fx->beat_react;
+    post_command(&cmd);
+}
+
+void eda_visualizer_get_spectrum(uint8_t *out32) {
+    led_get_spectrum(out32, 32);
+}
+
+void eda_visualizer_set_emotion(const char *emotion) {
+    // T3 实现：emotion -> 场景/配色映射
+    (void)emotion;
+}
+
+led_mode_t eda_visualizer_get_mode(void) {
+    return s_current_mode;
+}
+
+int eda_visualizer_get_brightness(void) {
+    return led_get_brightness();
+}
+
+int eda_visualizer_get_bpm(void) {
+    return led_get_beat()->bpm;
+}
+
+void eda_visualizer_set_audio_source(eda_audio_src_t src) {
+    if (src == EDA_AUDIO_SRC_WIFI && !s_wifi_rx_up) {
+        if (wifi_audio_init(WIFI_AUDIO_UDP_PORT) != ESP_OK) {
+            ESP_LOGE(TAG, "UDP 接收器启动失败，源保持麦克风");
+            return;
+        }
+        s_wifi_rx_up = true;
+    }
+    s_audio_src = src;
+    s_fft.sample_rate = (src == EDA_AUDIO_SRC_WIFI) ? 44100 : 16000;
+    ESP_LOGI(TAG, "音频源切换: %s (端口 %d)",
+             src == EDA_AUDIO_SRC_WIFI ? "WiFi 推流" : "麦克风", WIFI_AUDIO_UDP_PORT);
+}
+
+eda_audio_src_t eda_visualizer_get_audio_source(void) {
+    return s_audio_src;
+}
+
+bool eda_visualizer_audio_streaming(void) {
+    return s_audio_src == EDA_AUDIO_SRC_WIFI && wifi_audio_streaming();
+}
+
+// 事件回调只置标志（禁止在 default event loop 里做 socket/建任务等重活），
+// 实际 UDP 启动由 vis_task 下个节拍执行。
+static volatile bool s_start_udp_rx = false;
+
+static void on_got_ip(void *arg, esp_event_base_t base, int32_t id, void *data) {
+    s_start_udp_rx = true;
+}
+
+void eda_visualizer_feed(const int16_t *pcm, int samples) {
+    if (!s_started) return;
+    audio_processor_feed(pcm, samples);
+}
+
+// ---------------- 命令消费 ----------------
+
+static void apply_command(const core_command_t *cmd) {
+    switch (cmd->type) {
+    case CMD_MODE_CHANGE:
+        led_set_mode(cmd->data.mode);
+        s_current_mode = cmd->data.mode;
+        break;
+    case CMD_BRIGHTNESS_SET:
+        led_set_brightness((uint8_t)cmd->data.param.value);
+        ESP_LOGI(TAG, "亮度设为 %d%%", cmd->data.param.value);
+        break;
+    case CMD_BRIGHTNESS_UP:
+        led_set_brightness((uint8_t)(led_get_brightness() + 10));
+        break;
+    case CMD_BRIGHTNESS_DOWN:
+        led_set_brightness((uint8_t)(led_get_brightness() - 10));
+        break;
+    case CMD_POST_SET:
+        led_set_post_params(cmd->data.post.gamma, cmd->data.post.gate,
+                            cmd->data.post.afterimage);
+        break;
+    case CMD_FX_SET: {
+        led_fx_t fx = {
+            .speed = cmd->data.fx.speed,
+            .intensity = cmd->data.fx.intensity,
+            .sensitivity = cmd->data.fx.sensitivity,
+            .hue = cmd->data.fx.hue,
+            .color_speed = cmd->data.fx.color_speed,
+            .beat_react = cmd->data.fx.beat_react,
+        };
+        led_set_fx(&fx);
+        break;
+    }
+    case CMD_TEST_RAINBOW: {
+        core_command_t m = { .type = CMD_MODE_CHANGE };
+        m.data.mode = MODE_RAINBOW;
+        post_command(&m);
+        break;
+    }
+    case CMD_SET_PARAM:
+    case CMD_GET_STATUS:
+    default:
+        break;
+    }
+}
+
+// ---------------- 渲染任务 ----------------
+
+static void vis_task(void *arg) {
+    int brightness = (int)arg;
+    led_set_brightness((uint8_t)brightness);
+    led_set_mode(MODE_SPECTRUM);
+
+    TickType_t last_wake = xTaskGetTickCount();
+    while (true) {
+        // 1. 消费外部命令（保持单一数据源）
+        core_command_t cmd;
+        while (dual_core_com_receive_command(&cmd, 0) == ESP_OK) {
+            apply_command(&cmd);
+        }
+
+        // 1.5 延后的 UDP 推流接收器启动（事件回调置标志，这里安全执行）
+        if (s_start_udp_rx) {
+            s_start_udp_rx = false;
+            if (!s_wifi_rx_up) {
+                if (wifi_audio_init(WIFI_AUDIO_UDP_PORT) == ESP_OK) {
+                    s_wifi_rx_up = true;
+                    ESP_LOGI(TAG, "推流接收器已启动 (UDP %d, 发现 5005)", WIFI_AUDIO_UDP_PORT);
+                } else {
+                    ESP_LOGW(TAG, "推流接收器启动失败（不影响麦克风源）");
+                }
+            }
+        }
+
+        // 2. 取帧计算 FFT。WiFi 推流优先；无流(掉线/暂停)自动降级回麦克风
+        bool use_wifi = (s_audio_src == EDA_AUDIO_SRC_WIFI) && wifi_audio_streaming();
+        int want_rate = use_wifi ? 44100 : 16000;
+        if (s_fft.sample_rate != want_rate) s_fft.sample_rate = want_rate;
+
+        int processed = 0;
+        if (use_wifi) {
+            // 44.1k 数据率 ~86fps，每个 33ms 节拍最多消化 5 帧防积压
+            while (processed < 5) {
+                wifi_audio_read(s_wifi_frame, FFT_SIZE, 0);
+                if (fft_processor_process_buffer(&s_fft, s_wifi_frame, FFT_SIZE) != ESP_OK) break;
+                processed++;
+            }
+        } else {
+            while (audio_processor_available() >= FFT_SIZE && processed < 3) {
+                if (fft_processor_process(&s_fft) != ESP_OK) break;
+                processed++;
+            }
+        }
+
+        // 3. 驱动灯效（内部含统一节拍引擎 + 后处理 + RMT 刷新）
+        led_update_visualization(s_fft.frequency_bands, NUM_FREQ_BANDS);
+
+        // 4. 刷新共享状态（供 Web 控制台 / MCP 读取）
+        s_frame_count++;
+        dual_core_com_update_status(s_current_mode, s_frame_count);
+
+        vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(VIS_FPS_MS));
+    }
+}
+
+// ---------------- 启动 ----------------
+
+esp_err_t eda_visualizer_start(int gpio, int led_num, int brightness_percent) {
+    if (s_started) return ESP_OK;
+
+    ESP_ERROR_CHECK(dual_core_com_init());
+
+    esp_err_t ret = fft_processor_init(&s_fft, 16000);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "FFT 初始化失败: %s", esp_err_to_name(ret));
+        return ret;
+    }
+
+    led_config_t cfg = {
+        .gpio_pin = gpio,
+        .num_leds = led_num,
+        .brightness = 255,
+    };
+    ret = led_controller_init(&cfg);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "LED 控制器初始化失败: %s", esp_err_to_name(ret));
+        return ret;
+    }
+
+    s_started = true;
+    // UDP 接收器不能在此创建：板级构造早于 esp_netif/lwIP 初始化，socket() 会 assert。
+    // 挂 IP 事件后再启动（此时网络栈就绪），见 on_got_ip。
+    esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &on_got_ip, NULL);
+    BaseType_t ok = xTaskCreatePinnedToCore(vis_task, "eda_vis", 8192,
+                                            (void *)(intptr_t)brightness_percent,
+                                            2, NULL, 1);
+    if (ok != pdPASS) {
+        ESP_LOGE(TAG, "渲染任务创建失败");
+        s_started = false;
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "氛围灯引擎已启动: GPIO=%d LEDs=%d (T2: 音量律动待接 emotion)",
+             gpio, led_num);
+    return ESP_OK;
+}

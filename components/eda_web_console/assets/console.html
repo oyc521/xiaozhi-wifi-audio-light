@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EDA-Robot-Pro · AI 氛围灯控制台</title>
+<style>
+    :root {
+        --bg0: #0b1020;
+        --bg1: #141b34;
+        --card: rgba(255,255,255,0.045);
+        --card-bd: rgba(255,255,255,0.09);
+        --text: #e6ecff;
+        --muted: #8aa0c8;
+        --accent: #4d9dff;
+        --accent2: #b06bff;
+        --ok: #35e0a1;
+        --warn: #ffb142;
+        --err: #ff5d73;
+        --radius: 16px;
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    html,body { height:100%; }
+    body {
+        font-family:'Segoe UI','Microsoft YaHei',system-ui,sans-serif;
+        color:var(--text);
+        background:
+            radial-gradient(1200px 600px at 15% -10%, #1b2a5a 0%, transparent 60%),
+            radial-gradient(1000px 600px at 110% 10%, #3a1e66 0%, transparent 55%),
+            linear-gradient(160deg, var(--bg0), var(--bg1));
+        min-height:100vh;
+        padding:24px;
+    }
+    .wrap { max-width:1180px; margin:0 auto; }
+
+    header { display:flex; align-items:center; gap:16px; flex-wrap:wrap; margin-bottom:22px; }
+    .logo {
+        width:46px; height:46px; border-radius:14px; flex:0 0 auto;
+        background:conic-gradient(from 200deg, var(--accent), var(--accent2), var(--accent));
+        box-shadow:0 8px 30px rgba(77,157,255,0.35);
+        display:grid; place-items:center; font-size:22px;
+    }
+    header h1 { font-size:1.5rem; font-weight:700; letter-spacing:.5px; }
+    header .sub { color:var(--muted); font-size:.85rem; }
+    .head-right { margin-left:auto; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+
+    .pill {
+        display:inline-flex; align-items:center; gap:7px;
+        padding:8px 12px; border-radius:999px; font-size:.82rem;
+        background:var(--card); border:1px solid var(--card-bd); color:var(--muted);
+    }
+    .dot { width:9px; height:9px; border-radius:50%; background:var(--err); box-shadow:0 0 10px currentColor; }
+    .dot.on { background:var(--ok); }
+    .dot.ap { background:var(--warn); }
+
+    .grid { display:grid; grid-template-columns:1.5fr 1fr; gap:18px; align-items:start; }
+    @media (max-width:900px){ .grid { grid-template-columns:1fr; } }
+
+    .card {
+        background:var(--card); border:1px solid var(--card-bd);
+        border-radius:var(--radius); padding:18px; margin-bottom:18px;
+        backdrop-filter:blur(8px);
+        box-shadow:0 10px 40px rgba(0,0,0,0.25);
+    }
+    .card h2 { font-size:.8rem; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:1.5px; margin-bottom:14px; display:flex; align-items:center; gap:8px;}
+    .card h2 .bar { width:4px; height:14px; border-radius:2px; background:linear-gradient(var(--accent),var(--accent2)); }
+
+    .modes { display:grid; grid-template-columns:repeat(auto-fill,minmax(96px,1fr)); gap:10px; }
+    .mode {
+        position:relative; cursor:pointer; user-select:none; text-align:center;
+        padding:14px 8px; border-radius:14px; font-size:.82rem; font-weight:600;
+        background:rgba(255,255,255,0.05); border:1px solid var(--card-bd);
+        transition:transform .12s ease, background .2s, border-color .2s, box-shadow .2s;
+    }
+    .mode .ic { display:block; font-size:20px; margin-bottom:6px; }
+    .mode .idx { position:absolute; top:5px; right:8px; font-size:.62rem; color:var(--muted); opacity:.7; }
+    .mode:hover { transform:translateY(-3px); background:rgba(255,255,255,0.09); }
+    .mode.active {
+        background:linear-gradient(150deg, rgba(77,157,255,.30), rgba(176,107,255,.30));
+        border-color:var(--accent); box-shadow:0 8px 26px rgba(77,157,255,.25);
+    }
+    .mode.active::after {
+        content:''; position:absolute; left:12px; right:12px; bottom:6px; height:2px; border-radius:2px;
+        background:linear-gradient(90deg,var(--accent),var(--accent2));
+    }
+
+    .row { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+    .row + .row { margin-top:14px; }
+    .field { display:flex; flex-direction:column; gap:6px; flex:1 1 160px; min-width:130px; }
+    .field label { font-size:.78rem; color:var(--muted); display:flex; justify-content:space-between; }
+    .field label b { color:var(--text); font-variant-numeric:tabular-nums; }
+
+    input[type=range]{ -webkit-appearance:none; appearance:none; height:6px; border-radius:6px;
+        background:linear-gradient(90deg,var(--accent),var(--accent2)); outline:none; }
+    input[type=range]::-webkit-slider-thumb{ -webkit-appearance:none; width:18px; height:18px; border-radius:50%;
+        background:#fff; cursor:pointer; box-shadow:0 2px 8px rgba(0,0,0,.4); border:3px solid var(--accent); }
+    input[type=range]::-moz-range-thumb{ width:16px; height:16px; border-radius:50%; background:#fff; cursor:pointer; border:3px solid var(--accent);}
+
+    input[type=text],input[type=password]{
+        width:100%; padding:10px 12px; border-radius:10px; background:rgba(0,0,0,0.25);
+        border:1px solid var(--card-bd); color:var(--text); font-size:.9rem; }
+    input:focus{ outline:none; border-color:var(--accent); }
+
+    .btn {
+        cursor:pointer; border:none; border-radius:11px; padding:10px 15px; font-size:.85rem; font-weight:600;
+        color:var(--text); background:rgba(255,255,255,0.08); border:1px solid var(--card-bd);
+        transition:transform .1s, background .2s;
+    }
+    .btn:hover{ background:rgba(255,255,255,0.14); transform:translateY(-2px); }
+    .btn.primary{ background:linear-gradient(150deg,var(--accent),var(--accent2)); border:none; }
+    .btn.ghost{ background:transparent; }
+    .btn:disabled{ opacity:.45; cursor:not-allowed; transform:none; }
+
+    .meter { display:flex; align-items:center; gap:10px; margin-top:4px; }
+    .bar-track{ flex:1; height:8px; border-radius:6px; background:rgba(255,255,255,0.08); overflow:hidden; }
+    .bar-fill{ height:100%; width:0%; background:linear-gradient(90deg,var(--ok),var(--accent)); transition:width .1s linear; }
+    .pulse-lamp{ width:14px; height:14px; border-radius:50%; background:var(--accent2); box-shadow:0 0 0 rgba(176,107,255,.6); transition:transform .05s, box-shadow .1s; }
+    .beat{ display:flex; justify-content:space-between; font-size:.78rem; color:var(--muted); margin-top:2px;}
+    .beat b{ color:var(--text); font-variant-numeric:tabular-nums; }
+
+    .prog{ height:10px; border-radius:6px; background:rgba(255,255,255,0.08); overflow:hidden; margin-top:10px; }
+    .prog > div{ height:100%; width:0%; background:linear-gradient(90deg,var(--ok),var(--accent)); transition:width .2s; }
+
+    .logbox{ height:150px; overflow-y:auto; font-size:.78rem; line-height:1.55; background:rgba(0,0,0,0.28);
+        border:1px solid var(--card-bd); border-radius:12px; padding:10px 12px; font-family:ui-monospace,Consolas,monospace; }
+    .logbox .t{ color:var(--muted); }
+    .logbox .ok{ color:var(--ok);} .logbox .err{ color:var(--err);} .logbox .info{ color:var(--accent);}
+
+    .hint{ font-size:.75rem; color:var(--muted); margin-top:8px; line-height:1.5;}
+    .badge{ font-size:.72rem; padding:2px 8px; border-radius:999px; background:rgba(77,157,255,.16); color:#bcd6ff; border:1px solid rgba(77,157,255,.3);}
+    .ip-edit{ display:inline-flex; align-items:center; gap:6px; font-family:ui-monospace,monospace; }
+    footer{ text-align:center; color:var(--muted); font-size:.75rem; margin-top:8px; }
+    a{ color:var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+    <header>
+        <div class="logo">🎚️</div>
+        <div>
+            <h1>AI 氛围灯控制台</h1>
+            <div class="sub">EDA-Robot-Pro · 16k 麦克风 / 44.1k WiFi 推流 · FFT 频谱灯效</div>
+        </div>
+        <div class="head-right">
+            <span class="pill"><span class="dot" id="conn-dot"></span><span id="conn-text">未连接</span></span>
+            <span class="pill ip-edit">📡 <span id="ip-label">—</span> <button class="btn ghost" style="padding:3px 8px" onclick="openIp()">改</button></span>
+        </div>
+    </header>
+
+    <div class="grid">
+        <div>
+            <div class="card">
+                <h2><span class="bar"></span>实时频谱 (32 段)</h2>
+                <canvas id="spec" style="width:100%;height:150px;display:block;border-radius:12px;background:rgba(0,0,0,0.25);"></canvas>
+                <div class="beat"><span>低频 20Hz</span><span id="spec-state" style="color:var(--muted)">— 未连接 —</span><span>8kHz 高频</span></div>
+            </div>
+
+            <div class="card">
+                <h2><span class="bar"></span>显示模式</h2>
+                <div class="modes" id="modes"></div>
+            </div>
+
+            <div class="card">
+                <h2><span class="bar"></span>视觉后处理</h2>
+                <div class="row">
+                    <div class="field">
+                        <label>对比 Gamma <b id="v-gamma">1.18</b></label>
+                        <input type="range" id="s-gamma" min="1.0" max="2.5" step="0.05" value="1.18">
+                    </div>
+                    <div class="field">
+                        <label>噪声门 <b id="v-gate">8</b></label>
+                        <input type="range" id="s-gate" min="0" max="64" step="1" value="8">
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="field">
+                        <label>余晖拖尾 <b id="v-after">0.62</b></label>
+                        <input type="range" id="s-after" min="0" max="0.9" step="0.01" value="0.62">
+                    </div>
+                    <button class="btn" style="align-self:flex-end" onclick="resetPost()">恢复默认</button>
+                </div>
+                <div class="hint">噪声门越大底色越黑、鼓点越突出；Gamma 越大明暗对比越强；余晖让运动带拖尾。</div>
+            </div>
+
+            <div class="card">
+                <h2><span class="bar"></span>全局风格 (所有模式共用)</h2>
+                <div class="row">
+                    <div class="field"><label>动画速度 <b id="v-speed">1.0</b></label><input type="range" id="s-speed" min="0.2" max="3.0" step="0.1" value="1.0"></div>
+                    <div class="field"><label>幅度增益 <b id="v-intensity">1.0</b></label><input type="range" id="s-intensity" min="0.2" max="2.0" step="0.1" value="1.0"></div>
+                </div>
+                <div class="row">
+                    <div class="field"><label>音频灵敏度 <b id="v-sensitivity">1.0</b></label><input type="range" id="s-sensitivity" min="0.2" max="4.0" step="0.1" value="1.0"></div>
+                    <div class="field"><label>鼓点联动 <b id="v-beat">0.60</b></label><input type="range" id="s-beat" min="0" max="1.0" step="0.05" value="0.6"></div>
+                </div>
+                <div class="row">
+                    <div class="field"><label>色相偏移 <b id="v-hue">0.00</b></label><input type="range" id="s-hue" min="0" max="1.0" step="0.02" value="0"></div>
+                    <div class="field"><label>变色速度 <b id="v-color">1.0</b></label><input type="range" id="s-color" min="0" max="4.0" step="0.1" value="1.0"></div>
+                </div>
+                <div class="row"><button class="btn" onclick="resetFx()">恢复默认</button></div>
+                <div class="hint">这套参数对所有模式生效：灵敏度=声音→画面的映射，鼓点联动=踩点强弱，色相/变色=整体配色。</div>
+            </div>
+
+            <div class="card">
+                <h2><span class="bar"></span>固件升级 (OTA)</h2>
+                <div class="row">
+                    <button class="btn" onclick="pickFile()">📁 选择固件</button>
+                    <span id="ota-name" style="color:var(--muted);font-size:.85rem;">未选择 (.bin)</span>
+                    <input type="file" id="ota-file" accept=".bin" style="display:none">
+                </div>
+                <div class="row"><button class="btn primary" id="ota-btn" disabled onclick="startOta()">🚀 开始升级</button></div>
+                <div class="prog" id="ota-prog" style="display:none"><div id="ota-bar"></div></div>
+                <div id="ota-status" class="hint"></div>
+            </div>
+        </div>
+
+        <div>
+            <div class="card">
+                <h2><span class="bar"></span>实时信号</h2>
+                <div class="meter">
+                    <div class="pulse-lamp" id="pulse-lamp"></div>
+                    <div class="bar-track"><div class="bar-fill" id="energy-bar"></div></div>
+                    <span class="badge" id="bpm-badge">BPM --</span>
+                </div>
+                <div class="beat"><span>能量 <b id="m-energy">0</b></span><span>亮度 <b id="m-bright">--</b></span><span>帧率 <b id="m-fps">--</b></span></div>
+                <div class="row" style="margin-top:14px;">
+                    <div class="field" style="flex:1 1 100%">
+                        <label>亮度 <b id="v-bright">100%</b></label>
+                        <input type="range" id="s-bright" min="0" max="100" step="1" value="100">
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="field" style="flex:1 1 100%">
+                        <label>音频源 <b id="m-src" style="font-weight:400;color:var(--muted)">—</b></label>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                            <button class="btn" id="src-mic" onclick="setSrc('mic')">🎤 麦克风</button>
+                            <button class="btn" id="src-wifi" onclick="setSrc('wifi')">📶 WiFi 推流</button>
+                            <button class="btn ghost" onclick="dlLauncher()">⬇ 下载电脑启动器</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <button class="btn" onclick="refresh()">🔄 刷新</button>
+                    <button class="btn" onclick="cmd('test_rainbow')">🌈 测试</button>
+                    <button class="btn" onclick="setMode(13)">⚫ 关闭</button>
+                    <button class="btn ghost" id="btn-auto" onclick="toggleAuto()">🔁 自动:开</button>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2><span class="bar"></span>运行状态</h2>
+                <div class="beat" style="font-size:.82rem">
+                    <span>版本 <b id="m-ver">--</b></span>
+                    <span>固件槽 <b id="m-slot">--</b></span>
+                    <span>空闲堆 <b id="m-heap">--</b></span>
+                </div>
+                <div class="beat" style="font-size:.82rem">
+                    <span>WiFi <b id="m-wifi">--</b></span>
+                    <span>模式 <b id="m-mode">--</b></span>
+                    <span>IP <b id="m-ip">--</b></span>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2><span class="bar"></span>日志</h2>
+                <div class="logbox" id="log"></div>
+            </div>
+        </div>
+    </div>
+    <footer>本地页面直连设备 API · 请先用“改”设置设备 IP（AP 模式填 192.168.4.1）</footer>
+</div>
+
+<div id="ip-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);align-items:center;justify-content:center;z-index:50;">
+    <div class="card" style="width:min(360px,90vw);margin:0;">
+        <h2><span class="bar"></span>设备地址</h2>
+        <input type="text" id="ip-input" placeholder="例如 192.168.1.100 或 192.168.4.1">
+        <div class="row" style="margin-top:14px;justify-content:flex-end;">
+            <button class="btn ghost" onclick="closeIp()">取消</button>
+            <button class="btn primary" onclick="saveIp()">保存并连接</button>
+        </div>
+        <div class="quick-ip row" style="gap:8px;margin-top:10px;">
+            <button class="btn" style="padding:6px 10px;font-size:.78rem" onclick="setIpVal('192.168.4.1')">AP 192.168.4.1</button>
+            <button class="btn" style="padding:6px 10px;font-size:.78rem" onclick="setIpVal('10.88.161.126')">10.88.161.126</button>
+        </div>
+    </div>
+</div>
+
+<script>
+const MODES = [
+    {n:0,  ic:'📊', name:'频谱'},
+    {n:1,  ic:'🌈', name:'彩虹'},
+    {n:2,  ic:'🌠', name:'星空'},
+    {n:3,  ic:'☄️', name:'流星脉冲'},
+    {n:4, ic:'🏀', name:'弹跳小球'},
+    {n:5,  ic:'🌊', name:'能量波'},
+    {n:6,  ic:'🎆', name:'烟花'},
+    {n:7,  ic:'💥', name:'节奏脉冲'},
+    {n:8,  ic:'🫧', name:'节奏呼吸'},
+    {n:9,  ic:'🦘', name:'节奏跳动'},
+    {n:10, ic:'✨', name:'闪光彩虹'},
+    {n:11, ic:'🧨', name:'爆炸碰撞'},
+    {n:12, ic:'📈', name:'波峰余晖'},
+    {n:14, ic:'🪞', name:'对称频谱'},
+    {n:15, ic:'💫', name:'节拍冲击波'},
+    {n:16, ic:'🌌', name:'极光辉光'},
+    {n:17, ic:'❤️', name:'心跳闪动'},
+    {n:13, ic:'⚫', name:'关闭'}
+];
+
+let ip = localStorage.getItem('dev_ip') || (location.protocol.indexOf('http') === 0 ? location.hostname : '');
+let currentMode = -1;
+let timer = null;
+let busyPost = false, scrubPost = false, scrubBright = false;
+let otaFile = null;
+let fpsPrev = {c:0,t:0};
+
+function el(id){ return document.getElementById(id); }
+function log(msg, cls){
+    const box = el('log');
+    const time = new Date().toLocaleTimeString();
+    const div = document.createElement('div');
+    div.innerHTML = `<span class="t">[${time}]</span> <span class="${cls||''}">${msg}</span>`;
+    box.appendChild(div);
+    while(box.children.length>40) box.removeChild(box.firstChild);
+    box.scrollTop = box.scrollHeight;
+}
+function apiUrl(p){ return `http://${ip}${p}`; }
+
+async function api(path, method, body){
+    if(!ip){ throw new Error('未设置设备IP'); }
+    const opt = { method: method||'GET', headers:{'Accept':'application/json'}, signal: AbortSignal.timeout(8000) };
+    if(body){ opt.headers['Content-Type']='application/json'; opt.body=JSON.stringify(body); }
+    const res = await fetch(apiUrl(path), opt);
+    const ct = res.headers.get('content-type')||'';
+    return ct.includes('json') ? res.json() : res.text();
+}
+
+function buildModes(){
+    const c = el('modes'); c.innerHTML='';
+    MODES.forEach(m=>{
+        const d = document.createElement('div');
+        d.className='mode'; d.dataset.mode=m.n;
+        d.innerHTML = `<span class="idx">${m.n}</span><span class="ic">${m.ic}</span>${m.name}`;
+        d.onclick = ()=> setMode(m.n);
+        c.appendChild(d);
+    });
+}
+function markActive(){
+    document.querySelectorAll('.mode').forEach(b=> b.classList.toggle('active', Number(b.dataset.mode)===currentMode));
+}
+async function setMode(n){
+    try{ const r = await api(`/api/mode?mode=${n}`,'POST'); if(r&&r.success!==false){ currentMode=n; markActive(); log(`切换到模式 ${n}`,'info'); } else { log('模式切换失败: '+(r&&r.error),'err'); } }
+    catch(e){ log('模式切换失败: '+e.message,'err'); }
+}
+async function cmd(name){
+    try{ await api(`/api/command?cmd=${name}`,'POST'); log('命令已发送: '+name,'info'); }
+    catch(e){ log('命令失败: '+e.message,'err'); }
+}
+
+async function refresh(){
+    if(!ip){ return; }
+    try{
+        const s = await api('/api/status');
+        el('conn-dot').className = 'dot ' + (s.is_ap_mode?'ap':(s.wifi_connected?'on':''));
+        el('conn-text').textContent = s.is_ap_mode?'AP配网模式':(s.wifi_connected?'已连接':'离线');
+        currentMode = s.mode; markActive();
+        el('m-mode').textContent = (MODES.find(m=>m.n===s.mode)||{}).name || s.mode;
+        el('m-ver').textContent = s.fw_version||'--';
+        el('m-wifi').textContent = s.wifi_connected?'已连接':'未连接';
+        el('m-ip').textContent = s.ip_address||ip;
+        el('m-heap').textContent = s.free_heap? Math.round(s.free_heap/1024)+'K':'--';
+        const now = performance.now();
+        if(s.frame_count!==undefined){
+            const dt = (now-fpsPrev.t)/1000;
+            if(fpsPrev.t && dt>0.5){ const fps=(s.frame_count-fpsPrev.c)/dt; el('m-fps').textContent=fps.toFixed(0); fpsPrev={c:s.frame_count,t:now}; }
+            else if(!fpsPrev.t){ fpsPrev={c:s.frame_count,t:now}; }
+        }
+        const e = Math.max(0, Math.min(100, (s.energy||0)));
+        el('energy-bar').style.width = Math.min(100,(e/1.2))+'%';
+        el('m-energy').textContent = (s.energy||0).toFixed(0);
+        el('bpm-badge').textContent = 'BPM '+(s.bpm||'--');
+        el('pulse-lamp').style.transform = 'scale('+(1+(s.pulse||0)/60)+')';
+        el('pulse-lamp').style.boxShadow = '0 0 '+(6+s.pulse/6)+'px rgba(176,107,255,'+(0.2+s.pulse/140)+')';
+        if(!scrubBright && s.brightness!==undefined){ el('s-bright').value=s.brightness; el('v-bright').textContent=s.brightness+'%'; el('m-bright').textContent=s.brightness+'%'; }
+        if(!scrubPost){
+            if(s.gamma!==undefined){ el('s-gamma').value=s.gamma; el('v-gamma').textContent=Number(s.gamma).toFixed(2); }
+            if(s.gate!==undefined){ el('s-gate').value=s.gate; el('v-gate').textContent=s.gate; }
+            if(s.afterimage!==undefined){ el('s-after').value=s.afterimage; el('v-after').textContent=Number(s.afterimage).toFixed(2); }
+        }
+        syncFxFromStatus(s);
+        applySourceUI(s);
+        if(s.auto_follow!==undefined){ el('btn-auto').textContent = s.auto_follow ? '🔁 自动:开' : '🔒 自动:关'; }
+    }catch(e){
+        el('conn-dot').className='dot'; el('conn-text').textContent='连接失败';
+    }
+}
+
+let postTimer=null;
+function queuePost(){
+    if(busyPost) return;
+    const gamma=parseFloat(el('s-gamma').value), gate=parseInt(el('s-gate').value), after=parseFloat(el('s-after').value);
+    el('v-gamma').textContent=gamma.toFixed(2); el('v-gate').textContent=gate; el('v-after').textContent=after.toFixed(2);
+    scrubPost=true;
+    clearTimeout(postTimer);
+    postTimer=setTimeout(async()=>{
+        try{ await api(`/api/post?gamma=${gamma}&gate=${gate}&afterimage=${after}`,'POST'); }
+        catch(e){ log('后处理下发失败: '+e.message,'err'); }
+        setTimeout(()=>scrubPost=false, 1200);
+    }, 350);
+}
+function resetPost(){ el('s-gamma').value=1.18; el('s-gate').value=8; el('s-after').value=0.62; queuePost(); }
+
+let fxTimer=null, scrubFx=false;
+const FXMAP = [
+    ['s-speed','v-speed','speed',1],
+    ['s-intensity','v-intensity','intensity',1],
+    ['s-sensitivity','v-sensitivity','sensitivity',1],
+    ['s-hue','v-hue','hue',2],
+    ['s-color','v-color','color_speed',1],
+    ['s-beat','v-beat','beat_react',2]
+];
+function fxVals(){ const o={}; FXMAP.forEach(m=> o[m[2]]=parseFloat(el(m[0]).value)); return o; }
+function fxDisp(){ FXMAP.forEach(m=> el(m[1]).textContent = parseFloat(el(m[0]).value).toFixed(m[3])); }
+function queueFx(){
+    fxDisp(); scrubFx=true;
+    clearTimeout(fxTimer);
+    const v=fxVals();
+    fxTimer=setTimeout(async()=>{
+        try{ await api(`/api/fx?speed=${v.speed}&intensity=${v.intensity}&sensitivity=${v.sensitivity}&hue=${v.hue}&color_speed=${v.color_speed}&beat_react=${v.beat_react}`,'POST'); }
+        catch(e){ log('风格下发失败: '+e.message,'err'); }
+        setTimeout(()=>scrubFx=false, 1200);
+    }, 350);
+}
+function resetFx(){ el('s-speed').value=1.0; el('s-intensity').value=1.0; el('s-sensitivity').value=1.0; el('s-hue').value=0; el('s-color').value=1.0; el('s-beat').value=0.6; queueFx(); }
+
+function applySourceUI(s){
+    const src = s.source || 'mic';
+    const micBtn = el('src-mic'), wifiBtn = el('src-wifi');
+    if(micBtn) micBtn.style.opacity = src==='mic' ? '1' : '0.55';
+    if(wifiBtn) wifiBtn.style.opacity = src==='wifi' ? '1' : '0.55';
+    const t = el('m-src');
+    if(t){
+        if(src==='wifi') t.innerHTML = s.wifi_streaming ? '<span style="color:var(--ok)">WiFi · 推流中</span>' : '<span style="color:var(--warn)">WiFi · 等待数据</span>';
+        else t.textContent = '麦克风';
+    }
+}
+async function setSrc(s){
+    try{ await api('/api/source?src='+s,'POST'); log('音频源切换为 '+s,'info'); refresh(); }
+    catch(e){ log('切换失败: '+e.message,'err'); }
+}
+
+function dlLauncher(){
+    if(!ip){ openIp(); return; }
+    window.location.href = apiUrl('/start.bat');
+    log('已下载电脑启动器 start_esp_audio.bat,双击它即可推流(会自动装依赖+打开本页)','info');
+}
+
+// ===================== 实时频谱 (32 柱) =====================
+let specData = new Array(32).fill(0);
+let specPeaks = new Array(32).fill(0);
+async function pollSpec(){
+    if(!ip){ return; }
+    try{
+        const r = await api('/api/spectrum');
+        if(r && r.bands){
+            specData = r.bands;
+            el('spec-state').textContent = '● 已连接';
+            el('spec-state').style.color = 'var(--ok)';
+            drawSpec();
+        }
+    }catch(e){
+        el('spec-state').textContent = '— 未连接 —';
+        el('spec-state').style.color = 'var(--muted)';
+    }
+}
+function drawSpec(){
+    const cv = el('spec'); if(!cv || !cv.getContext) return;
+    const dpr = window.devicePixelRatio || 1;
+    const w = cv.clientWidth, h = cv.clientHeight;
+    if(!w || !h) return;
+    if(cv.width !== Math.round(w*dpr) || cv.height !== Math.round(h*dpr)){ cv.width = Math.round(w*dpr); cv.height = Math.round(h*dpr); }
+    const ctx = cv.getContext('2d');
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,w,h);
+    const N = specData.length, gap = 2;
+    const bw = (w - (N-1)*gap) / N;
+    for(let i=0;i<N;i++){
+        const v = Math.max(0, Math.min(1, specData[i]/255));
+        specPeaks[i] = Math.max(v, specPeaks[i] - 0.012);
+        const bh = v*h, ph = specPeaks[i]*h;
+        const hue = (i/(N-1))*250;
+        const x = i*(bw+gap);
+        const g = ctx.createLinearGradient(0,h,0,h-bh);
+        g.addColorStop(0, `hsl(${hue},90%,52%)`);
+        g.addColorStop(1, `hsl(${hue},96%,72%)`);
+        ctx.fillStyle = g;
+        ctx.fillRect(x, h-bh, bw, bh);
+        ctx.fillStyle = `hsla(${hue},100%,88%,0.9)`;
+        ctx.fillRect(x, Math.max(0,h-ph-2), bw, 2);
+    }
+}
+function syncFxFromStatus(s){
+    if(scrubFx || !s || !s.fx) return;
+    el('s-speed').value = s.fx.speed;
+    el('s-intensity').value = s.fx.intensity;
+    el('s-sensitivity').value = s.fx.sensitivity;
+    el('s-hue').value = s.fx.hue;
+    el('s-color').value = s.fx.color_speed;
+    el('s-beat').value = s.fx.beat_react;
+    fxDisp();
+}
+
+let brightTimer=null;
+function onBright(){
+    const v=parseInt(el('s-bright').value);
+    el('v-bright').textContent=v+'%'; el('m-bright').textContent=v+'%';
+    scrubBright=true;
+    clearTimeout(brightTimer);
+    brightTimer=setTimeout(async()=>{ try{ await api(`/api/brightness?value=${v}`,'POST'); }catch(e){ log('亮度下发失败: '+e.message,'err'); } setTimeout(()=>scrubBright=false,1000); },250);
+}
+
+function pickFile(){ el('ota-file').click(); }
+document.addEventListener('DOMContentLoaded', ()=>{
+    el('ota-file').addEventListener('change', e=>{
+        otaFile = e.target.files[0]||null;
+        el('ota-name').textContent = otaFile? `${otaFile.name} (${Math.round(otaFile.size/1024)}KB)` : '未选择 (.bin)';
+        el('ota-btn').disabled = !otaFile;
+    });
+    ['s-gamma','s-gate','s-after'].forEach(id=> el(id).addEventListener('input', queuePost));
+    ['s-speed','s-intensity','s-sensitivity','s-hue','s-color','s-beat'].forEach(id=> el(id).addEventListener('input', queueFx));
+    fxDisp();
+    el('s-bright').addEventListener('input', onBright);
+    el('s-bright').addEventListener('pointerdown', ()=>scrubBright=true);
+    el('s-bright').addEventListener('pointerup', ()=> setTimeout(()=>scrubBright=false,1000));
+
+    buildModes();
+    if(ip){ el('ip-label').textContent = ip; startPoll(); } else { openIp(); }
+    setInterval(pollSpec, 90);
+    log('页面已加载，请设置设备 IP 后连接。','info');
+});
+
+function startPoll(){ clearInterval(timer); refresh(); timer=setInterval(refresh, 2500); }
+
+async function startOta(){
+    if(!otaFile || !ip){ return; }
+    const btn=el('ota-btn'); btn.disabled=true;
+    el('ota-prog').style.display='block'; el('ota-bar').style.width='0%';
+    el('ota-status').textContent='正在上传固件…';
+    const xhr=new XMLHttpRequest();
+    xhr.open('POST', apiUrl('/api/ota'));
+    xhr.setRequestHeader('Content-Type','application/octet-stream');
+    let sent=false;
+    xhr.upload.onprogress=ev=>{ if(ev.lengthComputable) el('ota-bar').style.width=Math.round(ev.loaded/ev.total*100)+'%'; };
+    xhr.upload.onload=()=>{ sent=true; };
+    xhr.onload=()=>{ el('ota-bar').style.width='100%'; el('ota-status').textContent='上传完成，设备重启中…'; waitBack(); };
+    xhr.onerror=()=>{ if(sent){ el('ota-bar').style.width='100%'; el('ota-status').textContent='上传完成，设备重启中…'; waitBack(); } else { el('ota-status').textContent='上传失败，请检查连接'; btn.disabled=false; } };
+    xhr.send(otaFile);
+    otaFile=null;
+}
+async function waitBack(){
+    clearInterval(timer);
+    for(let i=0;i<25;i++){
+        await new Promise(r=>setTimeout(r,3000));
+        try{ const t=await fetch(apiUrl('/ping'),{signal:AbortSignal.timeout(2000)}); if(t.ok){ el('ota-status').textContent='✅ 升级完成，设备已重启'; log('OTA 升级完成','ok'); el('ota-btn').disabled=true; startPoll(); return; } }catch(e){}
+    }
+    el('ota-status').textContent='⚠️ 未能重新连接，请检查设备';
+    el('ota-btn').disabled=false;
+}
+
+function openIp(){ el('ip-modal').style.display='flex'; el('ip-input').value=ip; }
+function closeIp(){ el('ip-modal').style.display='none'; }
+function setIpVal(v){ el('ip-input').value=v; }
+function saveIp(){
+    const v=el('ip-input').value.trim();
+    if(!/^\d{1,3}(\.\d{1,3}){3}$/.test(v)){ log('IP 格式不正确','err'); return; }
+    ip=v; localStorage.setItem('dev_ip',ip); el('ip-label').textContent=ip; closeIp();
+    log('已连接到 '+ip,'info'); startPoll();
+}
+
+async function toggleAuto(){
+    const cur = el('btn-auto').textContent.includes('开');
+    try{
+        const r=await api('/api/auto?follow='+(cur?0:1),'POST');
+        log(cur?'已切换为手动模式(保持当前灯效, 不再跟随设备状态)':'已恢复自动跟随设备状态','info');
+        refresh();
+    }catch(e){ log('切换失败: '+e.message,'err'); }
+}
+</script>
+</body>
+</html>

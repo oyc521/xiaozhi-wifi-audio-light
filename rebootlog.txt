@@ -1,0 +1,273 @@
+I (147484) DnsServer: Sending DNS response to 192.168.4.1
+I (147484) DnsServer: Sending DNS response to 192.168.4.1
+I (148044) DnsServer: Sending DNS response to 192.168.4.1
+I (148174) DnsServer: Sending DNS response to 192.168.4.1
+I (148264) DnsServer: Sending DNS response to 192.168.4.1
+I (148794) WifiConfigurationAp: SSID: iQOO11Pro, RSSI: -18, Authmode: 3
+I (148794) WifiConfigurationAp: SSID: iQOO 11, RSSI: -51, Authmode: 3
+I (148794) WifiConfigurationAp: SSID: iQOO 15, RSSI: -53, Authmode: 3
+I (148804) WifiConfigurationAp: SSID: ChinaNet-51E5-2.4G, RSSI: -54, Authmode: 4
+I (148814) WifiConfigurationAp: SSID: WXXY_CMCC, RSSI: -69, Authmode: 0
+I (148814) WifiConfigurationAp: SSID: WXXY, RSSI: -70, Authmode: 0
+I (148824) WifiConfigurationAp: SSID: WXXY_ChinaNet, RSSI: -70, Authmode: 0
+I (148834) WifiConfigurationAp: SSID: WXXY_ChinaUnicom, RSSI: -70, Authmode: 0
+I (148834) WifiConfigurationAp: SSID: WXXY_CMCC, RSSI: -73, Authmode: 0
+I (148844) WifiConfigurationAp: SSID: WXXY_ChinaUnicom, RSSI: -73, Authmode: 0
+I (150184) DnsServer: Sending DNS response to 192.168.4.1
+W (150204) httpd_uri: httpd_uri: URI '/mmtls/3be40e85' not found
+W (150204) httpd_txrx: httpd_resp_send_err: 404 Not Found - Nothing matches the given URI
+I (150504) SystemInfo: free sram: 99767 minimal sram: 39812
+I (151344) DnsServer: Sending DNS response to 192.168.4.1
+I (152244) DnsServer: Sending DNS response to 192.168.4.1
+W (152264) httpd_uri: httpd_uri: URI '/mmtls/05e51f9c' not found
+W (152264) httpd_txrx: httpd_resp_send_err: 404 Not Found - Nothing matches the given URI
+W (152274) httpd_parse: parse_block: incomplete (0/128) with parser error = 16
+W (152274) httpd_txrx: httpd_resp_send_err: 400 Bad Request - Bad request syntax
+I (153034) DnsServer: Sending DNS response to 192.168.4.1
+I (153884) WifiConfigurationAp: SSID: iQOO11Pro, RSSI: -21, Authmode: 3
+I (153884) WifiConfigurationAp: SSID: iQOO 11, RSSI: -49, Authmode: 3
+I (153884) WifiConfigurationAp: SSID: ChinaNet-51E5-2.4G, RSSI: -50, Authmode: 4
+I (153894) WifiConfigurationAp: SSID: iQOO 15, RSSI: -51, Authmode: 3
+I (153894) WifiConfigurationAp: SSID: WXXY, RSSI: -71, Authmode: 0
+I (153904) WifiConfigurationAp: SSID: WXXY_CMCC, RSSI: -73, Authmode: 0
+I (153904) WifiConfigurationAp: SSID: WXXY, RSSI: -73, Authmode: 0
+I (153914) WifiConfigurationAp: SSID: WXXY_ChinaNet, RSSI: -73, Authmode: 0
+I (153924) WifiConfigurationAp: SSID: realmGt5pro, RSSI: -76, Authmode: 7
+W (153944) httpd_uri: httpd_uri: URI '/mmtls/73534f6e' not found
+W (153944) httpd_txrx: httpd_resp_send_err: 404 Not Found - Nothing matches the given URI
+I (157174) DnsServer: Sending DNS response to 192.168.4.1
+I (157194) DnsServer: Sending DNS response to 192.168.4.1
+I (157684) DnsServer: Sending DNS response to 192.168.4.1
+I (158964) DnsServer: Sending DNS response to 192.168.4.1
+I (158974) WifiConfigurationAp: SSID: iQOO11Pro, RSSI: -21, Authmode: 3
+I (158974) WifiConfigurationAp: SSID: iQOO 11, RSSI: -49, Authmode: 3
+I (158974) WifiConfigurationAp: SSID: ChinaNet-51E5-2.4G, RSSI: -50, Authmode: 4
+I (158974) WifiConfigurationAp: SSID: iQOO 15, RSSI: -51, Authmode: 3
+I (158984) WifiConfigurationAp: SSID: WXXY, RSSI: -71, Authmode: 0
+I (158994) WifiConfigurationAp: SSID: WXXY_CMCC, RSSI: -73, Authmode: 0
+I (158994) WifiConfigurationAp: SSID: WXXY, RSSI: -73, Authmode: 0
+I (159004) WifiConfigurationAp: SSID: WXXY_ChinaNet, RSSI: -73, Authmode: 0
+I (159014) WifiConfigurationAp: SSID: realmGt5pro, RSSI: -76, Authmode: 7
+I (160504) SystemInfo: free sram: 99771 minimal sram: 39812
+I (161324) DnsServer: Sending DNS response to 192.168.4.1
+W (161364) httpd_uri: httpd_uri: URI '/mmtls/61c900f0' not found
+W (161364) httpd_txrx: httpd_resp_send_err: 404 Not Found - Nothing matches the given URI
+I (161804) DnsServer: Sending DNS response to 192.168.4.1
+I (163254) DnsServer: Sending DNS response to 192.168.4.1
+I (163254) DnsServer: Sending DNS response to 192.168.4.1
+W (163364) httpd_uri: httpd_uri: URI '/mmtls/7d7f33e3' not found
+W (163364) httpd_txrx: httpd_resp_send_err: 404 Not Found - Nothing matches the given URI
+I (164044) WifiConfigurationAp: SSID: iQOO11Pro, RSSI: -21, Authmode: 3
+I (164044) WifiConfigurationAp: SSID: iQOO 11, RSSI: -49, Authmode: 3
+I (164044) WifiConfigurationAp: SSID: ChinaNet-51E5-2.4G, RSSI: -50, Authmode: 4
+I (164054) WifiConfigurationAp: SSID: iQOO 15, RSSI: -51, Authmode: 3
+I (164064) WifiConfigurationAp: SSID: WXXY, RSSI: -71, Authmode: 0
+I (164064) WifiConfigurationAp: SSID: WXXY_CMCC, RSSI: -73, Authmode: 0
+I (164074) WifiConfigurationAp: SSID: WXXY, RSSI: -73, Authmode: 0
+I (164084) WifiConfigurationAp: SSID: WXXY_ChinaNet, RSSI: -73, Authmode: 0
+I (164084) WifiConfigurationAp: SSID: realmGt5pro, RSSI: -76, Authmode: 7
+I (164334) DnsServer: Sending DNS response to 192.168.4.1
+I (164334) DnsServer: Sending DNS response to 192.168.4.1
+W (164354) httpd_uri: httpd_uri: URI 'http://aedns.weixin.qq.com/cgi-bin/default/getdns?clientversion=658688&devicetype=android&uin=0&format=json' not found
+W (164354) httpd_txrx: httpd_resp_send_err: 404 Not Found - Nothing matches the given URI
+I (169214) WifiConfigurationAp: SSID: iQOO11Pro, RSSI: -19, Authmode: 3
+I (169214) WifiConfigurationAp: SSID: iQOO 11, RSSI: -50, Authmode: 3
+I (169214) WifiConfigurationAp: SSID: iQOO 15, RSSI: -51, Authmode: 3
+I (169214) WifiConfigurationAp: SSID: ChinaNet-51E5-2.4G, RSSI: -52, Authmode: 4
+I (169224) WifiConfigurationAp: SSID: WXXY_ChinaNet, RSSI: -70, Authmode: 0
+I (169234) WifiConfigurationAp: SSID: WXXY, RSSI: -71, Authmode: 0
+I (169234) WifiConfigurationAp: SSID: WXXY_CMCC, RSSI: -71, Authmode: 0
+I (169244) WifiConfigurationAp: SSID: WXXY_ChinaUnicom, RSSI: -71, Authmode: 0
+I (169254) WifiConfigurationAp: SSID: WXXY_ChinaUnicom, RSSI: -76, Authmode: 0
+I (169254) WifiConfigurationAp: SSID: WXXY, RSSI: -77, Authmode: 0
+I (169264) WifiConfigurationAp: SSID: WXXY_ChinaNet, RSSI: -77, Authmode: 0
+I (169274) WifiConfigurationAp: SSID: WXXY_CMCC, RSSI: -77, Authmode: 0
+I (169604) DnsServer: Sending DNS response to 192.168.4.1
+I (169604) DnsServer: Sending DNS response to 192.168.4.1
+I (170504) SystemInfo: free sram: 99559 minimal sram: 39812
+W (171454) httpd_parse: parse_block: incomplete (0/36) with parser error = 16
+W (171454) httpd_txrx: httpd_resp_send_err: 400 Bad Request - Bad request syntax
+I (173194) DnsServer: Sending DNS response to 192.168.4.1
+I (173814) DnsServer: Sending DNS response to 192.168.4.1
+I (174304) WifiConfigurationAp: SSID: iQOO11Pro, RSSI: -19, Authmode: 3
+I (174304) WifiConfigurationAp: SSID: iQOO 11, RSSI: -50, Authmode: 3
+I (174304) WifiConfigurationAp: SSID: iQOO 15, RSSI: -51, Authmode: 3
+I (174314) WifiConfigurationAp: SSID: ChinaNet-51E5-2.4G, RSSI: -52, Authmode: 4
+I (174314) WifiConfigurationAp: SSID: WXXY_ChinaNet, RSSI: -70, Authmode: 0
+I (174324) WifiConfigurationAp: SSID: WXXY, RSSI: -71, Authmode: 0
+I (174324) WifiConfigurationAp: SSID: WXXY_CMCC, RSSI: -71, Authmode: 0
+I (174334) WifiConfigurationAp: SSID: WXXY_ChinaUnicom, RSSI: -71, Authmode: 0
+I (174334) DnsServer: Sending DNS response to 192.168.4.1
+I (174344) WifiConfigurationAp: SSID: WXXY_ChinaUnicom, RSSI: -76, Authmode: 0
+I (174354) WifiConfigurationAp: SSID: WXXY, RSSI: -77, Authmode: 0
+I (174364) WifiConfigurationAp: SSID: WXXY_ChinaNet, RSSI: -77, Authmode: 0
+I (174364) WifiConfigurationAp: SSID: WXXY_CMCC, RSSI: -77, Authmode: 0
+I (179414) WifiConfigurationAp: SSID: iQOO11Pro, RSSI: -24, Authmode: 3
+I (179414) WifiConfigurationAp: SSID: iQOO 11, RSSI: -50, Authmode: 3
+I (179414) WifiConfigurationAp: SSID: ChinaNet-51E5-2.4G, RSSI: -52, Authmode: 4
+I (179414) WifiConfigurationAp: SSID: iQOO 15, RSSI: -54, Authmode: 3
+I (179424) WifiConfigurationAp: SSID: WXXY, RSSI: -69, Authmode: 0
+I (179434) WifiConfigurationAp: SSID: WXXY_ChinaUnicom, RSSI: -70, Authmode: 0
+I (179434) WifiConfigurationAp: SSID: WXXY_ChinaNet, RSSI: -70, Authmode: 0
+I (179444) WifiConfigurationAp: SSID: WXXY_ChinaUnicom, RSSI: -73, Authmode: 0
+I (179454) WifiConfigurationAp: SSID: WXXY_CMCC, RSSI: -74, Authmode: 0
+I (179454) WifiConfigurationAp: SSID: WXXY_ChinaNet, RSSI: -76, Authmode: 0
+I (179464) WifiConfigurationAp: SSID: WXXY, RSSI: -76, Authmode: 0
+I (179884) DnsServer: Sending DNS response to 192.168.4.1
+I (180504) SystemInfo: free sram: 99559 minimal sram: 39812
+I (181194) DnsServer: Sending DNS response to 192.168.4.1
+I (181194) DnsServer: Sending DNS response to 192.168.4.1
+I (183634) DnsServer: Sending DNS response to 192.168.4.1
+I (183644) DnsServer: Sending DNS response to 192.168.4.1
+I (184504) WifiConfigurationAp: SSID: iQOO11Pro, RSSI: -24, Authmode: 3
+I (184504) WifiConfigurationAp: SSID: iQOO 11, RSSI: -50, Authmode: 3
+I (184504) WifiConfigurationAp: SSID: ChinaNet-51E5-2.4G, RSSI: -52, Authmode: 4
+I (184514) WifiConfigurationAp: SSID: iQOO 15, RSSI: -54, Authmode: 3
+I (184524) WifiConfigurationAp: SSID: WXXY, RSSI: -69, Authmode: 0
+I (184524) WifiConfigurationAp: SSID: WXXY_ChinaUnicom, RSSI: -70, Authmode: 0
+I (184534) WifiConfigurationAp: SSID: WXXY_ChinaNet, RSSI: -70, Authmode: 0
+I (184544) WifiConfigurationAp: SSID: WXXY_ChinaUnicom, RSSI: -73, Authmode: 0
+I (184544) WifiConfigurationAp: SSID: WXXY_CMCC, RSSI: -74, Authmode: 0
+I (184554) WifiConfigurationAp: SSID: WXXY_ChinaNet, RSSI: -76, Authmode: 0
+I (184564) WifiConfigurationAp: SSID: WXXY, RSSI: -76, Authmode: 0
+I (186314) DnsServer: Sending DNS response to 192.168.4.1
+I (186314) DnsServer: Sending DNS response to 192.168.4.1
+I (188554) DnsServer: Sending DNS response to 192.168.4.1
+I (189854) WifiConfigurationAp: SSID: iQOO11Pro, RSSI: -24, Authmode: 3
+I (189864) WifiConfigurationAp: SSID: iQOO 11, RSSI: -50, Authmode: 3
+I (189864) WifiConfigurationAp: SSID: ChinaNet-51E5-2.4G, RSSI: -52, Authmode: 4
+I (189864) WifiConfigurationAp: SSID: iQOO 15, RSSI: -54, Authmode: 3
+I (189874) WifiConfigurationAp: SSID: WXXY, RSSI: -69, Authmode: 0
+I (189884) WifiConfigurationAp: SSID: WXXY_ChinaUnicom, RSSI: -70, Authmode: 0
+I (189884) WifiConfigurationAp: SSID: WXXY_ChinaNet, RSSI: -70, Authmode: 0
+I (189894) WifiConfigurationAp: SSID: WXXY_ChinaUnicom, RSSI: -73, Authmode: 0
+I (189904) WifiConfigurationAp: SSID: WXXY_CMCC, RSSI: -74, Authmode: 0
+I (189904) WifiConfigurationAp: SSID: WXXY_ChinaNet, RSSI: -76, Authmode: 0
+I (189914) WifiConfigurationAp: SSID: WXXY, RSSI: -76, Authmode: 0
+I (190504) SystemInfo: free sram: 98907 minimal sram: 39812
+I (191534) DnsServer: Sending DNS response to 192.168.4.1
+I (192034) DnsServer: Sending DNS response to 192.168.4.1
+I (193134) DnsServer: Sending DNS response to 192.168.4.1
+I (193324) DnsServer: Sending DNS response to 192.168.4.1
+I (196174) WifiConfigurationAp: SSID: iQOO11Pro, RSSI: -19, Authmode: 3
+I (196174) WifiConfigurationAp: SSID: ChinaNet-51E5-2.4G, RSSI: -52, Authmode: 4
+I (196174) WifiConfigurationAp: SSID: iQOO 15, RSSI: -53, Authmode: 3
+I (196184) WifiConfigurationAp: SSID: iQOO 11, RSSI: -53, Authmode: 3
+I (196194) WifiConfigurationAp: SSID: WXXY_CMCC, RSSI: -70, Authmode: 0
+I (196194) WifiConfigurationAp: SSID: WXXY, RSSI: -71, Authmode: 0
+I (196204) WifiConfigurationAp: SSID: WXXY_ChinaNet, RSSI: -71, Authmode: 0
+I (196204) WifiConfigurationAp: SSID: WXXY_ChinaUnicom, RSSI: -71, Authmode: 0
+I (196214) WifiConfigurationAp: SSID: WXXY_CMCC, RSSI: -72, Authmode: 0
+I (196224) WifiConfigurationAp: SSID: WXXY_ChinaNet, RSSI: -73, Authmode: 0
+I (196224) WifiConfigurationAp: SSID: WXXY, RSSI: -74, Authmode: 0
+I (196234) WifiConfigurationAp: SSID: WXXY_ChinaUnicom, RSSI: -74, Authmode: 0
+I (196244) WifiConfigurationAp: SSID: realmGt5pro, RSSI: -77, Authmode: 7
+W (198624) httpd_parse: parse_block: incomplete (0/36) with parser error = 16
+W (198624) httpd_txrx: httpd_resp_send_err: 400 Bad Request - Bad request syntax
+I (198764) DnsServer: Sending DNS response to 192.168.4.1
+I (200504) SystemInfo: free sram: 99555 minimal sram: 39812
+W (200704) httpd_parse: parse_block: incomplete (0/128) with parser error = 16
+W (200704) httpd_txrx: httpd_resp_send_err: 400 Bad Request - Bad request syntax
+I (201284) WifiConfigurationAp: SSID: iQOO11Pro, RSSI: -19, Authmode: 3
+I (201284) WifiConfigurationAp: SSID: ChinaNet-51E5-2.4G, RSSI: -52, Authmode: 4
+I (201284) WifiConfigurationAp: SSID: iQOO 15, RSSI: -53, Authmode: 3
+I (201294) WifiConfigurationAp: SSID: iQOO 11, RSSI: -53, Authmode: 3
+I (201294) WifiConfigurationAp: SSID: WXXY_CMCC, RSSI: -70, Authmode: 0
+I (201304) WifiConfigurationAp: SSID: WXXY, RSSI: -71, Authmode: 0
+I (201314) WifiConfigurationAp: SSID: WXXY_ChinaNet, RSSI: -71, Authmode: 0
+I (201314) WifiConfigurationAp: SSID: WXXY_ChinaUnicom, RSSI: -71, Authmode: 0
+I (201324) WifiConfigurationAp: SSID: WXXY_CMCC, RSSI: -72, Authmode: 0
+I (201334) WifiConfigurationAp: SSID: WXXY_ChinaNet, RSSI: -73, Authmode: 0
+I (201334) WifiConfigurationAp: SSID: WXXY, RSSI: -74, Authmode: 0
+I (201344) WifiConfigurationAp: SSID: WXXY_ChinaUnicom, RSSI: -74, Authmode: 0
+I (201354) WifiConfigurationAp: SSID: realmGt5pro, RSSI: -77, Authmode: 7
+I (201684) DnsServer: Sending DNS response to 192.168.4.1
+I (204364) DnsServer: Sending DNS response to 192.168.4.1
+I (206404) WifiConfigurationAp: SSID: iQOO11Pro, RSSI: -19, Authmode: 3
+I (206404) WifiConfigurationAp: SSID: ChinaNet-51E5-2.4G, RSSI: -54, Authmode: 4
+I (206414) WifiConfigurationAp: SSID: iQOO 15, RSSI: -55, Authmode: 3
+I (206414) WifiConfigurationAp: SSID: iQOO 11, RSSI: -56, Authmode: 3
+I (206424) WifiConfigurationAp: SSID: WXXY, RSSI: -70, Authmode: 0
+I (206424) WifiConfigurationAp: SSID: WXXY_ChinaNet, RSSI: -70, Authmode: 0
+I (206434) WifiConfigurationAp: SSID: WXXY_CMCC, RSSI: -70, Authmode: 0
+I (206444) WifiConfigurationAp: SSID: WXXY_ChinaUnicom, RSSI: -70, Authmode: 0
+I (206444) WifiConfigurationAp: SSID: WXXY_CMCC, RSSI: -73, Authmode: 0
+I (206454) WifiConfigurationAp: SSID: WXXY_ChinaUnicom, RSSI: -73, Authmode: 0
+I (206464) WifiConfigurationAp: SSID: WXXY_ChinaNet, RSSI: -75, Authmode: 0
+I (206464) WifiConfigurationAp: SSID: realmGt5pro, RSSI: -75, Authmode: 7
+I (207534) DnsServer: Sending DNS response to 192.168.4.1
+I (207534) DnsServer: Sending DNS response to 192.168.4.1
+I (208194) DnsServer: Sending DNS response to 192.168.4.1
+I (208404) DnsServer: Sending DNS response to 192.168.4.1
+I (208404) DnsServer: Sending DNS response to 192.168.4.1
+I (210204) DnsServer: Sending DNS response to 192.168.4.1
+I (210254) DnsServer: Sending DNS response to 192.168.4.1
+I (210504) SystemInfo: free sram: 99555 minimal sram: 39812
+I (211514) WifiConfigurationAp: SSID: iQOO11Pro, RSSI: -19, Authmode: 3
+I (211514) WifiConfigurationAp: SSID: ChinaNet-51E5-2.4G, RSSI: -54, Authmode: 4
+I (211514) WifiConfigurationAp: SSID: iQOO 15, RSSI: -55, Authmode: 3
+I (211524) WifiConfigurationAp: SSID: iQOO 11, RSSI: -56, Authmode: 3
+I (211534) WifiConfigurationAp: SSID: WXXY, RSSI: -70, Authmode: 0
+I (211534) WifiConfigurationAp: SSID: WXXY_ChinaNet, RSSI: -70, Authmode: 0
+I (211544) WifiConfigurationAp: SSID: WXXY_CMCC, RSSI: -70, Authmode: 0
+I (211544) WifiConfigurationAp: SSID: WXXY_ChinaUnicom, RSSI: -70, Authmode: 0
+I (211554) WifiConfigurationAp: SSID: WXXY_CMCC, RSSI: -73, Authmode: 0
+I (211564) WifiConfigurationAp: SSID: WXXY_ChinaUnicom, RSSI: -73, Authmode: 0
+I (211564) WifiConfigurationAp: SSID: WXXY_ChinaNet, RSSI: -75, Authmode: 0
+I (211574) WifiConfigurationAp: SSID: realmGt5pro, RSSI: -75, Authmode: 7
+I (217614) WifiConfigurationAp: SSID: iQOO11Pro, RSSI: -24, Authmode: 3
+I (217614) WifiConfigurationAp: SSID: ChinaNet-51E5-2.4G, RSSI: -52, Authmode: 4
+I (217614) WifiConfigurationAp: SSID: iQOO 15, RSSI: -53, Authmode: 3
+I (217624) WifiConfigurationAp: SSID: iQOO 11, RSSI: -53, Authmode: 3
+I (217624) WifiConfigurationAp: SSID: WXXY, RSSI: -68, Authmode: 0
+I (217634) WifiConfigurationAp: SSID: WXXY_ChinaNet, RSSI: -68, Authmode: 0
+I (217644) WifiConfigurationAp: SSID: WXXY_CMCC, RSSI: -73, Authmode: 0
+I (217644) WifiConfigurationAp: SSID: WXXY_ChinaUnicom, RSSI: -73, Authmode: 0
+I (217654) WifiConfigurationAp: SSID: WXXY, RSSI: -73, Authmode: 0
+I (217664) WifiConfigurationAp: SSID: WXXY_ChinaNet, RSSI: -74, Authmode: 0
+I (219884) DnsServer: Sending DNS response to 192.168.4.1
+I (219884) DnsServer: Sending DNS response to 192.168.4.1
+I (220434) DnsServer: Sending DNS response to 192.168.4.1
+I (220504) SystemInfo: free sram: 99551 minimal sram: 39812
+I (220824) DnsServer: Sending DNS response to 192.168.4.1
+I (220824) DnsServer: Sending DNS response to 192.168.4.1
+I (222704) WifiConfigurationAp: SSID: iQOO11Pro, RSSI: -24, Authmode: 3
+I (222704) WifiConfigurationAp: SSID: ChinaNet-51E5-2.4G, RSSI: -52, Authmode: 4
+I (222714) WifiConfigurationAp: SSID: iQOO 15, RSSI: -53, Authmode: 3
+I (222714) WifiConfigurationAp: SSID: iQOO 11, RSSI: -53, Authmode: 3
+I (222724) WifiConfigurationAp: SSID: WXXY, RSSI: -68, Authmode: 0
+I (222724) WifiConfigurationAp: SSID: WXXY_ChinaNet, RSSI: -68, Authmode: 0
+I (222734) WifiConfigurationAp: SSID: WXXY_CMCC, RSSI: -73, Authmode: 0
+I (222744) WifiConfigurationAp: SSID: WXXY_ChinaUnicom, RSSI: -73, Authmode: 0
+I (222744) WifiConfigurationAp: SSID: WXXY, RSSI: -73, Authmode: 0
+I (222754) WifiConfigurationAp: SSID: WXXY_ChinaNet, RSSI: -74, Authmode: 0
+I (223174) DnsServer: Sending DNS response to 192.168.4.1
+I (223174) DnsServer: Sending DNS response to 192.168.4.1
+I (223344) DnsServer: Sending DNS response to 192.168.4.1
+I (225594) DnsServer: Sending DNS response to 192.168.4.1
+I (225794) DnsServer: Sending DNS response to 192.168.4.1
+W (225824) httpd_parse: parse_block: incomplete (0/36) with parser error = 16
+W (225824) httpd_txrx: httpd_resp_send_err: 400 Bad Request - Bad request syntax
+I (227884) WifiConfigurationAp: SSID: iQOO11Pro, RSSI: -24, Authmode: 3
+I (227884) WifiConfigurationAp: SSID: ChinaNet-51E5-2.4G, RSSI: -52, Authmode: 4
+I (227894) WifiConfigurationAp: SSID: iQOO 15, RSSI: -53, Authmode: 3
+I (227894) WifiConfigurationAp: SSID: iQOO 11, RSSI: -53, Authmode: 3
+I (227904) WifiConfigurationAp: SSID: WXXY, RSSI: -68, Authmode: 0
+I (227904) WifiConfigurationAp: SSID: WXXY_ChinaNet, RSSI: -68, Authmode: 0
+I (227914) WifiConfigurationAp: SSID: WXXY_CMCC, RSSI: -73, Authmode: 0
+I (227924) WifiConfigurationAp: SSID: WXXY_ChinaUnicom, RSSI: -73, Authmode: 0
+I (227924) WifiConfigurationAp: SSID: WXXY, RSSI: -73, Authmode: 0
+I (227934) WifiConfigurationAp: SSID: WXXY_ChinaNet, RSSI: -74, Authmode: 0
+I (230454) DnsServer: Sending DNS response to 192.168.4.1
+I (230504) SystemInfo: free sram: 99555 minimal sram: 39812
+I (233074) WifiConfigurationAp: SSID: iQOO11Pro, RSSI: -19, Authmode: 3
+I (233074) WifiConfigurationAp: SSID: ChinaNet-51E5-2.4G, RSSI: -52, Authmode: 4
+I (233074) WifiConfigurationAp: SSID: iQOO 15, RSSI: -52, Authmode: 3
+I (233084) WifiConfigurationAp: SSID: iQOO 11, RSSI: -60, Authmode: 3
+I (233084) WifiConfigurationAp: SSID: WXXY, RSSI: -72, Authmode: 0
+I (233094) WifiConfigurationAp: SSID: WXXY_CMCC, RSSI: -72, Authmode: 0
+I (233094) WifiConfigurationAp: SSID: WXXY_ChinaUnicom, RSSI: -72, Authmode: 0
+I (233104) WifiConfigurationAp: SSID: WXXY_ChinaNet, RSSI: -73, Authmode: 0
+I (233114) WifiConfigurationAp: SSID: WXXY_CMCC, RSSI: -73, Authmode: 0
+I (233114) WifiConfigurationAp: SSID: realmGt5pro, RSSI: -78, Authmode: 7
+I (234354) DnsServer: Sending DNS response to 192.168.4.1

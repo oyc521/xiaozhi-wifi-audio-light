@@ -1,0 +1,24 @@
+# ---- build / downloaded artifacts ----
+build/
+managed_components/
+tmp/
+releases/
+.cache
+.env
+*.pyc
+*.bin
+.clangd
+.DS_Store
+.devcontainer/
+
+# ---- generated files ----
+sdkconfig.old
+main/assets/lang_config.h
+main/mmap_generate_emoji.h
+mmap_generate_*.h
+
+# NOTE: intentionally NOT ignored (kept for backup):
+#   components/       - our added components (eda_web_console/eda_visualizer/wifi_audio/...)
+#   sdkconfig         - working configuration
+#   dependencies.lock - dependency version pinning
+#   .vscode/          - editor / clangd setup
