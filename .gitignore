@@ -30,3 +30,12 @@ start_esp_audio.bat
 # ---- internal scratch (not for public repo) ----
 components/target.md
 rebootlog.txt
+
+# ---- junk / backups ----
+*.bak
+*.orig
+*.tmp
+*~
+desktop.ini
+Thumbs.db
+*.zip
