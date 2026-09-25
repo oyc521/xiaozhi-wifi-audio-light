@@ -131,8 +131,25 @@ void InitializeEdaStripController() {
         });
 
     mcp.AddTool(
+        "self.strip.set_music_mode",
+        "进入/退出音乐模式。进入音乐模式(on=true)时氛围灯跟随电脑WiFi推流的音乐律动，并暂停AI语音唤醒与识别，避免音乐误唤醒和算力冲突；"
+        "退出(on=false)恢复AI语音对话。用户说'进入音乐模式/放音乐/推流模式/听电脑音乐'传true，说'退出音乐模式/恢复对话/别听电脑了'传false",
+        PropertyList({Property("on", kPropertyTypeBoolean, true)}),
+        [](const PropertyList& properties) -> ReturnValue {
+            bool on = properties["on"].value<bool>();
+            if (on) {
+                if (eda_visualizer_enter_music_mode() != ESP_OK) {
+                    return "进入音乐模式失败（WiFi 推流接收器未就绪）";
+                }
+                return "已进入音乐模式：灯光跟随电脑音乐，AI 语音已暂停";
+            }
+            eda_visualizer_exit_music_mode();
+            return "已退出音乐模式：AI 语音已恢复";
+        });
+
+    mcp.AddTool(
         "self.strip.get_status",
-        "查询氛围灯当前状态（当前模式、亮度、是否自动跟随、音频来源、是否正在接收推流、检测到的音乐节拍BPM）",
+        "查询氛围灯当前状态（当前模式、亮度、是否自动跟随、音频来源、是否正在接收推流、是否处于音乐模式、检测到的音乐节拍BPM）",
         PropertyList(),
         [](const PropertyList& properties) -> ReturnValue {
             cJSON* root = cJSON_CreateObject();
@@ -142,6 +159,7 @@ void InitializeEdaStripController() {
             cJSON_AddStringToObject(root, "audio_source",
                 eda_visualizer_get_audio_source() == EDA_AUDIO_SRC_WIFI ? "wifi" : "mic");
             cJSON_AddBoolToObject(root, "streaming", eda_visualizer_audio_streaming());
+            cJSON_AddBoolToObject(root, "music_mode", eda_visualizer_is_music_mode());
             cJSON_AddNumberToObject(root, "bpm", eda_visualizer_get_bpm());
             return root;
         });

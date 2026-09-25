@@ -73,6 +73,21 @@ eda_audio_src_t eda_visualizer_get_audio_source(void);
 /** true = WiFi source selected AND stream currently flowing */
 bool            eda_visualizer_audio_streaming(void);
 
+/* ---------------- Music mode (AI dialog <-> music visualization) ----------------
+ * Music mode = light reacts to the PC WiFi stream, and xiaozhi's wake word /
+ * ASR are temporarily disabled, so AI voice and music visualization never run
+ * at the same time (avoids false wake word + CPU contention on the AFE).
+ * Entering is triggered by: voice / web / auto (stream packets detected).
+ * Exiting is triggered by: web / touch button / 30s without stream.
+ */
+typedef void (*eda_ai_audio_cb_t)(bool enable);
+/** Register the callback used to enable/disable xiaozhi AI audio. */
+void eda_visualizer_set_ai_audio_cb(eda_ai_audio_cb_t cb);
+
+esp_err_t eda_visualizer_enter_music_mode(void);
+void      eda_visualizer_exit_music_mode(void);
+bool      eda_visualizer_is_music_mode(void);
+
 #ifdef __cplusplus
 }
 #endif

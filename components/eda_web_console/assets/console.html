@@ -234,6 +234,7 @@
                         <div style="display:flex;gap:8px;flex-wrap:wrap;">
                             <button class="btn" id="src-mic" onclick="setSrc('mic')">🎤 麦克风</button>
                             <button class="btn" id="src-wifi" onclick="setSrc('wifi')">📶 WiFi 推流</button>
+                            <button class="btn" id="btn-music" onclick="toggleMusic()">🎵 音乐模式:关</button>
                             <button class="btn ghost" onclick="dlLauncher()">⬇ 下载电脑启动器</button>
                         </div>
                     </div>
@@ -389,6 +390,7 @@ async function refresh(){
         syncFxFromStatus(s);
         applySourceUI(s);
         if(s.auto_follow!==undefined){ el('btn-auto').textContent = s.auto_follow ? '🔁 自动:开' : '🔒 自动:关'; }
+        if(s.music_mode!==undefined){ el('btn-music').textContent = s.music_mode ? '🎵 音乐模式:开' : '🎵 音乐模式:关'; }
     }catch(e){
         el('conn-dot').className='dot'; el('conn-text').textContent='连接失败';
     }
@@ -583,6 +585,15 @@ async function toggleAuto(){
         log(cur?'已切换为手动模式(保持当前灯效, 不再跟随设备状态)':'已恢复自动跟随设备状态','info');
         refresh();
     }catch(e){ log('切换失败: '+e.message,'err'); }
+}
+
+async function toggleMusic(){
+    const cur = el('btn-music').textContent.includes('开');
+    try{
+        await api('/api/music?on='+(cur?0:1),'POST');
+        log(cur?'已退出音乐模式(AI语音恢复)':'已进入音乐模式(AI语音暂停, 灯光跟随电脑音乐)','info');
+        refresh();
+    }catch(e){ log('音乐模式切换失败: '+e.message,'err'); }
 }
 </script>
 </body>

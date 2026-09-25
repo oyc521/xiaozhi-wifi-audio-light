@@ -76,3 +76,6 @@ CONFIG_LV_USE_WIN=n
 CONFIG_LV_BUILD_EXAMPLES=n
 CONFIG_LV_BUILD_DEMOS=n
 
+# More lwIP sockets: xiaozhi (mqtt/udp/tls) + wifi_audio(2) + web console httpd
+CONFIG_LWIP_MAX_SOCKETS=16
+

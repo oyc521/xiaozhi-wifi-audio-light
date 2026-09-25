@@ -127,6 +127,7 @@ static esp_err_t api_status_handler(httpd_req_t *req) {
     cJSON_AddBoolToObject(root, "auto_follow", auto_follow);
     cJSON_AddStringToObject(root, "source", src == EDA_AUDIO_SRC_WIFI ? "wifi" : "mic");
     cJSON_AddBoolToObject(root, "wifi_streaming", wifi_audio_streaming());
+    cJSON_AddBoolToObject(root, "music_mode", eda_visualizer_is_music_mode());
 
     const esp_app_desc_t *app = esp_app_get_description();
     if (app) {
@@ -314,6 +315,24 @@ static esp_err_t api_source_handler(httpd_req_t *req) {
     return send_json(req, r);
 }
 
+// ---------------- /api/music (音乐模式：AI对话 <-> 音乐可视化 互斥) ----------------
+static esp_err_t api_music_handler(httpd_req_t *req) {
+    if (req->method == HTTP_POST || req->method == HTTP_PUT) {
+        int on = (int)qs_float(req, "on", -1);
+        if (on == 1) {
+            eda_visualizer_enter_music_mode();
+        } else if (on == 0) {
+            eda_visualizer_exit_music_mode();
+        }
+    }
+    cJSON *r = cJSON_CreateObject();
+    cJSON_AddBoolToObject(r, "music_mode", eda_visualizer_is_music_mode());
+    cJSON_AddBoolToObject(r, "streaming", wifi_audio_streaming());
+    cJSON_AddStringToObject(r, "source",
+        eda_visualizer_get_audio_source() == EDA_AUDIO_SRC_WIFI ? "wifi" : "mic");
+    return send_json(req, r);
+}
+
 // ---------------- /loopback.py 与 /start.bat (一键推流) ----------------
 static esp_err_t loopback_py_handler(httpd_req_t *req) {
     add_cors(req);
@@ -379,6 +398,7 @@ static esp_err_t start_server(void) {
     REG_ANY("/api/fx", api_fx_handler);
     REG_ANY("/api/spectrum", api_spectrum_handler);
     REG_ANY("/api/source", api_source_handler);
+    REG_ANY("/api/music", api_music_handler);
     REG_GET("/loopback.py", loopback_py_handler);
     REG_GET("/start.bat", start_bat_handler);
 

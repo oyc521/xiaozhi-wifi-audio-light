@@ -140,6 +140,69 @@ bool eda_visualizer_audio_streaming(void) {
     return s_audio_src == EDA_AUDIO_SRC_WIFI && wifi_audio_streaming();
 }
 
+// ---------------- 音乐模式（AI 对话 <-> 音乐可视化 互斥） ----------------
+#define MUSIC_AUTO_EXIT_MS 30000   // 推流中断超过 30s 自动退出音乐模式
+
+static bool s_music_mode = false;
+static eda_ai_audio_cb_t s_ai_cb = NULL;
+static int64_t s_stream_lost_us = 0;
+
+void eda_visualizer_set_ai_audio_cb(eda_ai_audio_cb_t cb) {
+    s_ai_cb = cb;
+}
+
+bool eda_visualizer_is_music_mode(void) {
+    return s_music_mode;
+}
+
+esp_err_t eda_visualizer_enter_music_mode(void) {
+    if (s_music_mode) return ESP_OK;
+    if (!s_started) return ESP_ERR_INVALID_STATE;
+
+    eda_visualizer_set_audio_source(EDA_AUDIO_SRC_WIFI);  // 源=PC 推流
+    if (s_audio_src != EDA_AUDIO_SRC_WIFI) {
+        return ESP_FAIL;  // UDP 接收器没起来
+    }
+    s_music_mode = true;
+    s_auto_follow = false;        // 锁定灯效，不被设备状态覆盖
+    s_stream_lost_us = 0;
+    if (s_ai_cb) s_ai_cb(false);  // 暂停小智唤醒/识别
+    ESP_LOGI(TAG, ">> 进入音乐模式：源=WiFi推流，AI语音已暂停");
+    return ESP_OK;
+}
+
+void eda_visualizer_exit_music_mode(void) {
+    if (!s_music_mode) return;
+    s_music_mode = false;
+    eda_visualizer_set_audio_source(EDA_AUDIO_SRC_MIC);
+    s_auto_follow = true;         // 恢复状态跟随
+    s_stream_lost_us = 0;
+    if (s_ai_cb) s_ai_cb(true);   // 恢复小智语音
+    ESP_LOGI(TAG, ">> 退出音乐模式：源=麦克风，AI语音已恢复");
+}
+
+// 推流变化 -> 自动进入/退出音乐模式（在 vis_task 内调用）
+static void music_mode_auto_tick(bool streaming) {
+    if (!s_music_mode) {
+        if (streaming) {
+            ESP_LOGI(TAG, "检测到推流，自动进入音乐模式");
+            eda_visualizer_enter_music_mode();
+        }
+        return;
+    }
+    if (streaming) {
+        s_stream_lost_us = 0;
+        return;
+    }
+    int64_t now = esp_timer_get_time();
+    if (s_stream_lost_us == 0) {
+        s_stream_lost_us = now;
+    } else if ((now - s_stream_lost_us) > (int64_t)MUSIC_AUTO_EXIT_MS * 1000) {
+        ESP_LOGI(TAG, "推流中断超时，自动退出音乐模式");
+        eda_visualizer_exit_music_mode();
+    }
+}
+
 // 事件回调只置标志（禁止在 default event loop 里做 socket/建任务等重活），
 // 实际 UDP 启动由 vis_task 下个节拍执行。
 static volatile bool s_start_udp_rx = false;
@@ -227,6 +290,9 @@ static void vis_task(void *arg) {
                 }
             }
         }
+
+        // 1.6 音乐模式自动进入/退出（依据推流是否在流动）
+        music_mode_auto_tick(wifi_audio_streaming());
 
         // 2. 取帧计算 FFT。WiFi 推流优先；无流(掉线/暂停)自动降级回麦克风
         bool use_wifi = (s_audio_src == EDA_AUDIO_SRC_WIFI) && wifi_audio_streaming();

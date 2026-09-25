@@ -69,6 +69,19 @@ public:
         }
     }
 };
+
+// 音乐模式互斥：暂停/恢复小智的唤醒词与语音识别
+static void EdaAiAudioToggle(bool enable) {
+    auto& audio = Application::GetInstance().GetAudioService();
+    if (enable) {
+        audio.EnableWakeWordDetection(true);
+        ESP_LOGI(TAG, "AI 语音已恢复");
+    } else {
+        audio.EnableVoiceProcessing(false);
+        audio.EnableWakeWordDetection(false);
+        ESP_LOGI(TAG, "AI 语音已暂停（音乐模式）");
+    }
+}
 #endif
 
 class EDARobotPro : public WifiBoard {
@@ -157,6 +170,12 @@ private:
     void InitializeButtons() {
 
         touch_button_.OnPressDown([this]() {
+#if CONFIG_EDA_AMBIENT_LIGHT
+            if (eda_visualizer_is_music_mode()) {
+                eda_visualizer_exit_music_mode();   // TOUCH 键 = 退出音乐模式
+                return;
+            }
+#endif
             Application::GetInstance().StartListening();
         });
         touch_button_.OnPressUp([this]() {
@@ -180,6 +199,7 @@ public:
 #if CONFIG_EDA_AMBIENT_LIGHT
         ambient_led_ = new EdaAmbientLed();
         eda_visualizer_start(STRIP_GPIO, STRIP_LED_NUM, CONFIG_EDA_STRIP_BRIGHTNESS);
+        eda_visualizer_set_ai_audio_cb(EdaAiAudioToggle);
         InitializeEdaStripController();
 #else
         strip_ = new CircularStrip(STRIP_GPIO, STRIP_LED_NUM);
