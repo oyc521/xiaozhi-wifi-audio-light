@@ -38,6 +38,11 @@ static bool s_auto_follow = true;
 static eda_audio_src_t s_audio_src = EDA_AUDIO_SRC_MIC;
 static bool s_wifi_rx_up = false;
 static int16_t s_wifi_frame[FFT_SIZE];
+static bool s_music_mode = false;
+static eda_ai_audio_cb_t s_ai_cb = NULL;
+static int64_t s_stream_lost_us = 0;
+static bool s_prev_streaming = false;
+static float s_silent_bands[NUM_FREQ_BANDS];   // 聊天模式静音频带（情绪场景）
 
 // ---------------- 命令投递 ----------------
 
@@ -101,9 +106,27 @@ void eda_visualizer_get_spectrum(uint8_t *out32) {
     led_get_spectrum(out32, 32);
 }
 
+// 情绪 -> (灯效 + 色相 + 强度) 映射。聊天模式用它驱动；音乐模式忽略。
 void eda_visualizer_set_emotion(const char *emotion) {
-    // T3 实现：emotion -> 场景/配色映射
-    (void)emotion;
+    if (!emotion || s_music_mode) return;   // 音乐模式优先
+
+    led_mode_t mode = MODE_AURORA;
+    float hue = 0.09f, intensity = 0.9f;
+    if      (strcmp(emotion, "happy") == 0)     { mode = MODE_AURORA; hue = 0.08f; intensity = 1.3f; }
+    else if (strcmp(emotion, "laughing") == 0)  { mode = MODE_AURORA; hue = 0.10f; intensity = 1.4f; }
+    else if (strcmp(emotion, "sad") == 0)       { mode = MODE_AURORA; hue = 0.62f; intensity = 0.75f; }
+    else if (strcmp(emotion, "angry") == 0)     { mode = MODE_AURORA; hue = 0.98f; intensity = 1.6f; }
+    else if (strcmp(emotion, "thinking") == 0)  { mode = MODE_AURORA; hue = 0.50f; intensity = 1.0f; }
+    else if (strcmp(emotion, "surprised") == 0) { mode = MODE_AURORA; hue = 0.13f; intensity = 1.5f; }
+    else if (strcmp(emotion, "cool") == 0)      { mode = MODE_AURORA; hue = 0.55f; intensity = 1.1f; }
+    else                                        { mode = MODE_AURORA; hue = 0.09f; intensity = 0.9f; } // neutral
+
+    eda_visualizer_set_mode(mode);   // 锁定灯效（不被状态切换覆盖）
+    led_fx_t fx = *led_get_fx();
+    fx.hue = hue;
+    fx.intensity = intensity;
+    eda_visualizer_set_fx(&fx);
+    ESP_LOGD(TAG, "情绪灯: %s -> mode=%d hue=%.2f", emotion, (int)mode, hue);
 }
 
 led_mode_t eda_visualizer_get_mode(void) {
@@ -142,11 +165,6 @@ bool eda_visualizer_audio_streaming(void) {
 
 // ---------------- 音乐模式（AI 对话 <-> 音乐可视化 互斥） ----------------
 #define MUSIC_AUTO_EXIT_MS 30000   // 推流中断超过 30s 自动退出音乐模式
-
-static bool s_music_mode = false;
-static eda_ai_audio_cb_t s_ai_cb = NULL;
-static int64_t s_stream_lost_us = 0;
-static bool s_prev_streaming = false;
 
 void eda_visualizer_set_ai_audio_cb(eda_ai_audio_cb_t cb) {
     s_ai_cb = cb;
@@ -300,28 +318,21 @@ static void vis_task(void *arg) {
         // 1.6 音乐模式自动进入/退出（依据推流是否在流动）
         music_mode_auto_tick(wifi_audio_streaming());
 
-        // 2. 取帧计算 FFT。WiFi 推流优先；无流(掉线/暂停)自动降级回麦克风
-        bool use_wifi = (s_audio_src == EDA_AUDIO_SRC_WIFI) && wifi_audio_streaming();
-        int want_rate = 16000;   // 麦/推流统一 16k
-        if (s_fft.sample_rate != want_rate) s_fft.sample_rate = want_rate;
-
-        int processed = 0;
-        if (use_wifi) {
-            // 16k 数据率 ~31fps，与渲染节拍一致；仅在缓冲够一帧时计算，避免补零帧拉低频谱
+        // 2. 只有音乐模式才做 FFT（吃 PC 推流）。聊天模式完全不用音频做渲染，
+        //    灯光交给情绪场景（也不读麦克风，避免与语音链路争抢）。
+        if (s_music_mode) {
+            if (s_fft.sample_rate != 16000) s_fft.sample_rate = 16000;
+            int processed = 0;
             while (processed < 3 && wifi_audio_available() >= FFT_SIZE) {
                 wifi_audio_read(s_wifi_frame, FFT_SIZE, 0);
                 if (fft_processor_process_buffer(&s_fft, s_wifi_frame, FFT_SIZE) != ESP_OK) break;
                 processed++;
             }
-        } else {
-            while (audio_processor_available() >= FFT_SIZE && processed < 3) {
-                if (fft_processor_process(&s_fft) != ESP_OK) break;
-                processed++;
-            }
         }
 
-        // 3. 驱动灯效（内部含统一节拍引擎 + 后处理 + RMT 刷新）
-        led_update_visualization(s_fft.frequency_bands, NUM_FREQ_BANDS);
+        // 3. 驱动灯效：音乐模式=FFT 频带；聊天模式=静音频带（情绪场景的时间动画）
+        led_update_visualization(s_music_mode ? s_fft.frequency_bands : s_silent_bands,
+                                 NUM_FREQ_BANDS);
 
         // 4. 刷新共享状态（供 Web 控制台 / MCP 读取）
         s_frame_count++;

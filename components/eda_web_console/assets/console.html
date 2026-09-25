@@ -230,12 +230,10 @@
                 </div>
                 <div class="row">
                     <div class="field" style="flex:1 1 100%">
-                        <label>音频源 <b id="m-src" style="font-weight:400;color:var(--muted)">—</b></label>
+                        <label>工作模式</label>
                         <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                            <button class="btn" id="src-mic" onclick="setSrc('mic')">🎤 麦克风</button>
-                            <button class="btn" id="src-wifi" onclick="setSrc('wifi')">📶 WiFi 推流</button>
-                            <button class="btn" id="btn-chat" onclick="setMusicMode(0)">💬 聊天模式</button>
-                            <button class="btn" id="btn-music" onclick="setMusicMode(1)">🎵 音乐模式</button>
+                            <button class="btn" id="btn-chat" onclick="setMusicMode(0)">💬 聊天模式（情绪灯）</button>
+                            <button class="btn" id="btn-music" onclick="setMusicMode(1)">🎵 音乐模式（频谱律动）</button>
                             <button class="btn ghost" onclick="dlLauncher()">⬇ 下载电脑启动器</button>
                         </div>
                     </div>
@@ -389,7 +387,6 @@ async function refresh(){
             if(s.afterimage!==undefined){ el('s-after').value=s.afterimage; el('v-after').textContent=Number(s.afterimage).toFixed(2); }
         }
         syncFxFromStatus(s);
-        applySourceUI(s);
         if(s.auto_follow!==undefined){ el('btn-auto').textContent = s.auto_follow ? '🔁 自动:开' : '🔒 自动:关'; }
         if(s.music_mode!==undefined){
             el('btn-music').style.opacity = s.music_mode ? '1' : '0.45';
@@ -437,22 +434,6 @@ function queueFx(){
     }, 350);
 }
 function resetFx(){ el('s-speed').value=1.0; el('s-intensity').value=1.0; el('s-sensitivity').value=1.0; el('s-hue').value=0; el('s-color').value=1.0; el('s-beat').value=0.6; queueFx(); }
-
-function applySourceUI(s){
-    const src = s.source || 'mic';
-    const micBtn = el('src-mic'), wifiBtn = el('src-wifi');
-    if(micBtn) micBtn.style.opacity = src==='mic' ? '1' : '0.55';
-    if(wifiBtn) wifiBtn.style.opacity = src==='wifi' ? '1' : '0.55';
-    const t = el('m-src');
-    if(t){
-        if(src==='wifi') t.innerHTML = s.wifi_streaming ? '<span style="color:var(--ok)">WiFi · 推流中</span>' : '<span style="color:var(--warn)">WiFi · 等待数据</span>';
-        else t.textContent = '麦克风';
-    }
-}
-async function setSrc(s){
-    try{ await api('/api/source?src='+s,'POST'); log('音频源切换为 '+s,'info'); refresh(); }
-    catch(e){ log('切换失败: '+e.message,'err'); }
-}
 
 function dlLauncher(){
     if(!ip){ openIp(); return; }

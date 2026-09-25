@@ -49,15 +49,6 @@ class EdaAmbientLed : public Led {
 public:
     virtual void OnStateChanged() override {
         switch (Application::GetInstance().GetDeviceState()) {
-        case kDeviceStateIdle:
-            eda_visualizer_set_mode_auto(MODE_SPECTRUM);      // 待机 = 音乐频谱律动
-            break;
-        case kDeviceStateListening:
-            eda_visualizer_set_mode_auto(MODE_ENERGY_WAVE);   // 聆听 = 能量波
-            break;
-        case kDeviceStateSpeaking:
-            eda_visualizer_set_mode_auto(MODE_RHYTHM_PULSE);  // 说话 = 节奏脉冲
-            break;
         case kDeviceStateWifiConfiguring:
         case kDeviceStateConnecting:
             eda_visualizer_set_mode_auto(MODE_AURORA);        // 联网中 = 极光
@@ -66,7 +57,7 @@ public:
             eda_visualizer_set_mode_auto(MODE_RHYTHM_BREATH); // 升级中 = 呼吸
             break;
         default:
-            break;
+            break;   // 其余状态由情绪灯（SetEmotion）驱动
         }
     }
 };
@@ -93,6 +84,16 @@ static void EdaMusicModeGuard(void *arg) {
     if (audio.IsAudioProcessorRunning()) audio.EnableVoiceProcessing(false);
     if (audio.IsWakeWordRunning()) audio.EnableWakeWordDetection(false);
 }
+
+// 情绪钩子：屏幕 SetEmotion 时同步驱动氛围灯（聊天模式的情绪灯）
+class XiaozhiOledDisplay : public OledDisplay {
+public:
+    using OledDisplay::OledDisplay;
+    void SetEmotion(const char* emotion) override {
+        OledDisplay::SetEmotion(emotion);
+        eda_visualizer_set_emotion(emotion);
+    }
+};
 #endif
 
 class XiaozhiWifiAudioLight : public WifiBoard {
@@ -169,7 +170,11 @@ private:
         ESP_LOGI(TAG, "Turning display on");
         ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_, true));
 
+#if CONFIG_EDA_AMBIENT_LIGHT
+        display_ = new XiaozhiOledDisplay(panel_io_, panel_, DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y);
+#else
         display_ = new OledDisplay(panel_io_, panel_, DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y);
+#endif
     }
 
 
