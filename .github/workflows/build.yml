@@ -1,13 +1,10 @@
 name: Build Boards
 
+# 本项目为 IDF 6.1 单板（xiaozhi-wifi-audio-light）二次开发，
+# 上游"构建全部板子(IDF 5.5)"的 CI 不适用，故禁用自动触发；
+# 如需使用，请在 GitHub Actions 页面手动触发（workflow_dispatch）。
 on:
-  push:
-    branches:
-      - main
-      - ci/* # for ci test
-  pull_request:
-    branches:
-      - main
+  workflow_dispatch:
 
 permissions:
   contents: read
