@@ -163,6 +163,10 @@ bool eda_visualizer_audio_streaming(void) {
     return s_audio_src == EDA_AUDIO_SRC_WIFI && wifi_audio_streaming();
 }
 
+bool eda_visualizer_wants_ambient_mic(void) {
+    return s_music_mode && s_audio_src == EDA_AUDIO_SRC_MIC;
+}
+
 // ---------------- 音乐模式（AI 对话 <-> 音乐可视化 互斥） ----------------
 #define MUSIC_AUTO_EXIT_MS 30000   // 推流中断超过 30s 自动退出音乐模式
 
@@ -318,15 +322,22 @@ static void vis_task(void *arg) {
         // 1.6 音乐模式自动进入/退出（依据推流是否在流动）
         music_mode_auto_tick(wifi_audio_streaming());
 
-        // 2. 只有音乐模式才做 FFT（吃 PC 推流）。聊天模式完全不用音频做渲染，
-        //    灯光交给情绪场景（也不读麦克风，避免与语音链路争抢）。
+        // 2. 音乐模式才做 FFT：音源=推流 吃 UDP；音源=环境声 吃板级喂入的麦环形缓冲。
+        //    聊天模式完全不用音频做渲染（灯光交给情绪场景）。
         if (s_music_mode) {
             if (s_fft.sample_rate != 16000) s_fft.sample_rate = 16000;
             int processed = 0;
-            while (processed < 3 && wifi_audio_available() >= FFT_SIZE) {
-                wifi_audio_read(s_wifi_frame, FFT_SIZE, 0);
-                if (fft_processor_process_buffer(&s_fft, s_wifi_frame, FFT_SIZE) != ESP_OK) break;
-                processed++;
+            if (s_audio_src == EDA_AUDIO_SRC_WIFI) {
+                while (processed < 3 && wifi_audio_available() >= FFT_SIZE) {
+                    wifi_audio_read(s_wifi_frame, FFT_SIZE, 0);
+                    if (fft_processor_process_buffer(&s_fft, s_wifi_frame, FFT_SIZE) != ESP_OK) break;
+                    processed++;
+                }
+            } else {
+                while (processed < 3 && audio_processor_available() >= FFT_SIZE) {
+                    if (fft_processor_process(&s_fft) != ESP_OK) break;
+                    processed++;
+                }
             }
         }
 

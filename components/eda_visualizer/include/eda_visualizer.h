@@ -73,6 +73,10 @@ eda_audio_src_t eda_visualizer_get_audio_source(void);
 /** true = WiFi source selected AND stream currently flowing */
 bool            eda_visualizer_audio_streaming(void);
 
+/** true = 音乐模式 且 音源=环境声(麦克风)：此时 AI 已暂停、AFE 不再读麦，
+    需要板级自己读麦并调用 eda_visualizer_feed() 提供环境声数据。 */
+bool            eda_visualizer_wants_ambient_mic(void);
+
 /* ---------------- Music mode (AI dialog <-> music visualization) ----------------
  * Music mode = light reacts to the PC WiFi stream, and xiaozhi's wake word /
  * ASR are temporarily disabled, so AI voice and music visualization never run

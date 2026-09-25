@@ -116,6 +116,21 @@ void InitializeEdaStripController() {
         });
 
     mcp.AddTool(
+        "self.strip.set_audio_source",
+        "切换音乐模式的音源。source='wifi' 用电脑UDP推流的音乐（用户说'用电脑的音乐'/'推流'时）；"
+        "source='mic' 用设备麦克风听环境声（用户说'听环境声'/'麦克风收音'时）。仅音乐模式生效",
+        PropertyList({Property("source", kPropertyTypeString, "wifi")}),
+        [](const PropertyList& properties) -> ReturnValue {
+            std::string src = properties["source"].value<std::string>();
+            if (src == "wifi") {
+                eda_visualizer_set_audio_source(EDA_AUDIO_SRC_WIFI);
+                return std::string("音乐模式音源已切换为电脑推流");
+            }
+            eda_visualizer_set_audio_source(EDA_AUDIO_SRC_MIC);
+            return std::string("音乐模式音源已切换为环境声");
+        });
+
+    mcp.AddTool(
         "self.strip.set_music_mode",
         "进入/退出音乐模式。进入音乐模式(on=true)时氛围灯跟随电脑WiFi推流的音乐律动，并暂停AI语音唤醒与识别，避免音乐误唤醒和算力冲突；"
         "退出(on=false)恢复AI语音对话。用户说'进入音乐模式/放音乐/推流模式/听电脑音乐'传true，说'退出音乐模式/恢复对话/别听电脑了'传false",

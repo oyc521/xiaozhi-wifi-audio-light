@@ -94,6 +94,24 @@ public:
         eda_visualizer_set_emotion(emotion);
     }
 };
+
+// 环境声音源：音乐模式下 AI 已暂停、AFE 不再读麦，由我们自读 codec 喂给可视化。
+// （此时没有其它读者，不会与小智争抢同一路 I2S）
+static void EdaAmbientMicTask(void *arg) {
+    auto codec = Board::GetInstance().GetAudioCodec();
+    if (codec == nullptr) { vTaskDelete(NULL); return; }
+    std::vector<int16_t> buf(512);
+    while (true) {
+        if (eda_visualizer_wants_ambient_mic()) {
+            if (!codec->input_enabled()) codec->EnableInput(true);
+            if (codec->InputData(buf) && !buf.empty()) {
+                eda_visualizer_feed(buf.data(), (int)buf.size());
+            }
+        } else {
+            vTaskDelay(pdMS_TO_TICKS(30));
+        }
+    }
+}
 #endif
 
 class XiaozhiWifiAudioLight : public WifiBoard {
@@ -216,6 +234,8 @@ public:
         ambient_led_ = new EdaAmbientLed();
         eda_visualizer_start(STRIP_GPIO, STRIP_LED_NUM, CONFIG_EDA_STRIP_BRIGHTNESS);
         eda_visualizer_set_ai_audio_cb(EdaAiAudioToggle);
+        // 环境声子模式：需要时自读麦克风喂可视化
+        xTaskCreatePinnedToCore(EdaAmbientMicTask, "eda_amic", 4096, nullptr, 3, nullptr, 1);
         // 音乐模式期间每秒重申一次"暂停 AI"，防止小智回 idle 时自恢复唤醒
         esp_timer_create_args_t guard_args = { .callback = EdaMusicModeGuard, .name = "music_guard" };
         esp_timer_create(&guard_args, &s_music_guard_timer);

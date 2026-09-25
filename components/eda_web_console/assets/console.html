@@ -237,6 +237,13 @@
                             <button class="btn ghost" onclick="dlLauncher()">⬇ 下载电脑启动器</button>
                         </div>
                     </div>
+                    <div class="field" style="flex:1 1 100%">
+                        <label>音乐模式音源</label>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                            <button class="btn" id="src-wifi" onclick="setSrc('wifi')">📶 电脑推流</button>
+                            <button class="btn" id="src-mic" onclick="setSrc('mic')">🎤 环境声</button>
+                        </div>
+                    </div>
                 </div>
                 <div class="row">
                     <button class="btn" onclick="refresh()">🔄 刷新</button>
@@ -391,6 +398,10 @@ async function refresh(){
         if(s.music_mode!==undefined){
             el('btn-music').style.opacity = s.music_mode ? '1' : '0.45';
             el('btn-chat').style.opacity  = s.music_mode ? '0.45' : '1';
+        }
+        if(s.source!==undefined){
+            el('src-wifi').style.opacity = s.source==='wifi' ? '1' : '0.45';
+            el('src-mic').style.opacity  = s.source==='mic' ? '1' : '0.45';
         }
     }catch(e){
         el('conn-dot').className='dot'; el('conn-text').textContent='连接失败';
@@ -575,6 +586,11 @@ async function setMusicMode(on){
         log(on?'已进入音乐模式(AI语音暂停, 灯光跟随电脑音乐)':'已进入聊天模式(AI语音恢复)','info');
         refresh();
     }catch(e){ log('模式切换失败: '+e.message,'err'); }
+}
+
+async function setSrc(s){
+    try{ await api('/api/source?src='+s,'POST'); log('音乐模式音源切换为 '+(s==='wifi'?'电脑推流':'环境声'),'info'); refresh(); }
+    catch(e){ log('音源切换失败: '+e.message,'err'); }
 }
 </script>
 </body>
