@@ -524,6 +524,7 @@ static struct {
     .flash_color = {255, 255, 255}
 };
 // 节奏跳动效果专用变量
+#define RJ_SEG 10                 // 频带段数（30 灯 → 每段 3 灯）
 static struct {
     struct {
         float height;        // 当前高度 (0-1)
@@ -533,13 +534,13 @@ static struct {
         float stiffness;     // 刚度（弹性系数）
         float damping;       // 阻尼系数
         rgb_color_t color;   // 该段颜色
-    } segments[8];           // 分成8个跳动段
+    } segments[RJ_SEG];      // 分成 RJ_SEG 个跳动段
     
     float color_hue;
     float hue_speed;
     
-    float energy_history[8];
-    float energy_peak[8];    // 能量峰值，用于更动态的响应
+    float energy_history[RJ_SEG];
+    float energy_peak[RJ_SEG];    // 能量峰值，用于更动态的响应
     float peak_decay;        // 峰值衰减速度
     
     float response_speed;    // 响应速度
@@ -678,6 +679,8 @@ static struct {
     
     uint32_t collision_count;   // 碰撞次数统计
     uint32_t particle_timer;    // 粒子更新计时器
+    uint32_t last_onset_time;   // 最近一次鼓点时间（兜底判定）
+    float launch_strength;      // 本次发射强度 0-1（由低频能量决定）
     
 } explosion_collision_state = {
     .state = STATE_IDLE,
@@ -692,7 +695,9 @@ static struct {
     .collision_zone_start = 0.4f,
     .collision_zone_end = 0.6f,
     .collision_count = 0,
-    .particle_timer = 0
+    .particle_timer = 0,
+    .last_onset_time = 0,
+    .launch_strength = 0.45f
 };
 
 // 函数原型声明
@@ -722,7 +727,7 @@ static void init_jump_segments(void);
 static void update_physics_simulation(void);
 static void init_sparkles(void);
 static void create_sparkle(float position, int direction, rgb_color_t color, float speed, int size);
-static void init_ion_particle(ion_particle_t *ion, int direction, rgb_color_t color);
+static void init_ion_particle(ion_particle_t *ion, int direction, rgb_color_t color, float strength);
 static void init_explosion(float position, float intensity, rgb_color_t core_color);
 static bool check_collision(void);
 static float rgb_to_hue(rgb_color_t color);
@@ -1200,9 +1205,10 @@ static esp_err_t water_ripple_effect(float *energy_bands, int num_bands) {
 
     const led_beat_t *b = led_get_beat();
     float sp = fmaxf(g_fx.speed, 0.2f);
-    float a_g = 0.0016f * sp * sp;
+    float a_g = 0.0016f * sp * sp;                 // 重力（降回，配合阻力让动作更慢）
     float mag = fminf((b->bass + b->mid + b->high) / 300.0f, 1.0f);
-    float kick = 0.030f + fx_beat() * 0.055f + mag * 0.03f;
+    float kick = 0.020f + fx_beat() * 0.030f + mag * 0.020f;   // 降低发射力度 → 跳得更慢更低
+    const float k_drag = 0.98f;                    // 空气阻力加大（每帧）
 
     for (int k = 0; k < BB_COUNT; k++) {
         if (b->onset) {
@@ -1212,6 +1218,7 @@ static esp_err_t water_ripple_effect(float *energy_bands, int num_bands) {
             if (s_ball[k].hue > 1.0f) s_ball[k].hue -= 1.0f;
         }
         s_ball[k].vy -= a_g;
+        s_ball[k].vy *= k_drag;                    // 阻力：限制弹跳高度
         s_ball[k].y += s_ball[k].vy;
         s_ball[k].hue += 0.0016f * g_fx.color_speed;
         if (s_ball[k].hue > 1.0f) s_ball[k].hue -= 1.0f;
@@ -1223,7 +1230,26 @@ static esp_err_t water_ripple_effect(float *energy_bands, int num_bands) {
             }
             s_ball[k].y = 0.0f;
         }
-        if (s_ball[k].y > 1.0f) { s_ball[k].y = 1.0f; if (s_ball[k].vy > 0.0f) s_ball[k].vy = 0.0f; }
+        if (s_ball[k].y > 1.0f) {                   // 顶到天花板：反弹而非滞顶
+            s_ball[k].y = 2.0f - s_ball[k].y;
+            if (s_ball[k].vy > 0.0f) s_ball[k].vy = -s_ball[k].vy * 0.4f;
+            if (s_ball[k].y < 0.0f) s_ball[k].y = 0.0f;
+        }
+    }
+
+    // 背景层：整条灯带铺一层暗色渐变（与球色错开），让"非小球"灯珠也有颜色
+    {
+        float bg_base = s_ball[0].hue + 0.5f;          // 与球色互补
+        float bg_lvl = 0.05f + 0.05f * fminf(b->bass / 60.0f, 1.0f);
+        float inv_n = (led_count > 1) ? 1.0f / (float)(led_count - 1) : 1.0f;
+        for (int led = 0; led < led_count; led++) {
+            float t = (float)led * inv_n;
+            float hue = bg_base + t * 0.25f + s_color_phase * 0.0004f;
+            float v = bg_lvl * (0.6f + 0.4f * (0.5f + 0.5f *
+                      sinf(t * 6.283f + (float)animation_counter * 0.02f)));
+            rgb_color_t bg = hsv_to_rgb(hue, 0.8f, v);
+            set_buffer_pixel_blend(led, bg, 0.4f);
+        }
     }
 
     float lane = (float)led_count / (float)BB_COUNT;
@@ -1236,7 +1262,7 @@ static esp_err_t water_ripple_effect(float *energy_bands, int num_bands) {
         int age = (int)(animation_counter - s_ball[k].bounce);
         if (age < 0) age = 0;
         float squash = (age < 8) ? (1.0f - (float)age / 8.0f) : 0.0f;
-        float sigma = 1.1f + squash * 1.6f;
+        float sigma = 2.1f + squash * 1.6f;   // 直径约 +2 灯珠
         float amp = 0.85f + 0.15f * squash;
         float span = (float)(hi - lo);
         float cy = (float)lo + s_ball[k].y * span;
@@ -1732,6 +1758,29 @@ static esp_err_t fireworks_effect_improved(float *energy_bands, int num_bands) {
 }
 
 // 改进的节奏脉冲效果 - 随机发射脉冲
+// 节奏脉冲：和谐暖色板（红→橙→琥珀，升序不环绕）+ 对撞发射
+#define RPAL_N 4
+static const float s_rpal[RPAL_N] = { 0.98f, 1.04f, 1.09f, 1.14f };
+
+static float rpal_lerp(float t)
+{
+    if (t < 0.0f) t = 0.0f;
+    if (t > 1.0f) t = 1.0f;
+    float x = t * (RPAL_N - 1);
+    int i = (int)x;
+    if (i > RPAL_N - 2) i = RPAL_N - 2;
+    float f = x - (float)i;
+    return s_rpal[i] * (1.0f - f) + s_rpal[i + 1] * f;
+}
+
+// 从两端同时发射一对相向脉冲（对撞）
+static void launch_collision(int length, float speed, float hue, float intensity)
+{
+    rgb_color_t c = hsv_to_rgb(hue, 0.9f, 1.0f);
+    create_pulse(0, c, length, speed, intensity);   // 左→右
+    create_pulse(1, c, length, speed, intensity);   // 右→左
+}
+
 static esp_err_t rhythm_pulse_effect(float *energy_bands, int num_bands) {
     if (!strip) return ESP_ERR_INVALID_STATE;
     
@@ -1752,150 +1801,54 @@ static esp_err_t rhythm_pulse_effect(float *energy_bands, int num_bands) {
     float mid_energy = band_energies[2] + band_energies[3];      // 中低频和中频
     float treble_energy = band_energies[4] + band_energies[5];   // 高频和超高频
     
-    // 3. 检测节奏并发射脉冲
+    // 3. 节拍驱动：鼓点触发"对撞脉冲"（两侧相向），色相取自和谐色板
     uint32_t current_time = animation_counter;
-    
-    // 低频节奏检测（鼓点）
-    static float last_bass_energy = 0;
-    static uint32_t last_bass_pulse = 0;
-    
-    if (bass_energy > 25 && bass_energy > last_bass_energy * 1.3f) {
-        // 触发脉冲
-        if (current_time - last_bass_pulse > 15) {
-            // 随机选择发射方向：0=从左向右，1=从右向左
-            int direction = rand() % 2;
-            
-            // 随机选择颜色（基于频率）
-            rgb_color_t pulse_color;
-            int color_type = rand() % 6;
-            
-            switch (color_type) {
-                case 0: pulse_color = (rgb_color_t){255, 50, 50}; break;    // 红色
-                case 1: pulse_color = (rgb_color_t){255, 150, 30}; break;   // 橙色
-                case 2: pulse_color = (rgb_color_t){255, 255, 50}; break;   // 黄色
-                case 3: pulse_color = (rgb_color_t){50, 255, 50}; break;    // 绿色
-                case 4: pulse_color = (rgb_color_t){50, 150, 255}; break;   // 蓝色
-                case 5: pulse_color = (rgb_color_t){200, 50, 255}; break;   // 紫色
-            }
-            
-            // 随机选择长度（3-8个LED）
-            int pulse_length = 3 + (rand() % 6);
-            
-            // 随机选择速度
-            float pulse_speed = 0.5f + (rand() % 100) / 100.0f * 1.5f;
-            
-            // 创建脉冲
-            create_pulse(direction, pulse_color, pulse_length, pulse_speed, bass_energy / 80.0f);
-            
-            last_bass_pulse = current_time;
+    const led_beat_t *bt = led_get_beat();
+
+    static uint32_t last_rp_launch = 0;
+    bool trigger = false;
+    float strength = 0.5f;
+    int pal_idx = 0;
+
+    if (bt->onset) {
+        trigger = true;
+        if (bass_energy >= mid_energy && bass_energy >= treble_energy) {
+            pal_idx = 0; strength = fminf(bass_energy / 80.0f, 1.0f);
+        } else if (mid_energy >= bass_energy && mid_energy >= treble_energy) {
+            pal_idx = 1; strength = fminf(mid_energy / 90.0f, 1.0f);
+        } else {
+            pal_idx = 2; strength = fminf(treble_energy / 100.0f, 1.0f);
         }
+    } else if (current_time - last_rp_launch > 90) {
+        // 兜底：长时间无鼓点时缓慢自走，避免静止
+        trigger = true;
+        strength = 0.4f;
+        pal_idx = (int)((last_rp_launch / 90) % 3);
     }
-    last_bass_energy = bass_energy;
-    
-    // 中频节奏检测（人声/乐器）
-    static float last_mid_energy = 0;
-    static uint32_t last_mid_pulse = 0;
-    
-    if (mid_energy > 30 && mid_energy > last_mid_energy * 1.5f) {
-        if (current_time - last_mid_pulse > 20) {
-            int direction = rand() % 2;
-            
-            // 中频使用更柔和的颜色
-            rgb_color_t pulse_color;
-            int color_type = rand() % 4;
-            
-            switch (color_type) {
-                case 0: pulse_color = (rgb_color_t){255, 100, 100}; break;  // 粉红
-                case 1: pulse_color = (rgb_color_t){100, 255, 100}; break;  // 浅绿
-                case 2: pulse_color = (rgb_color_t){100, 100, 255}; break;  // 浅蓝
-                case 3: pulse_color = (rgb_color_t){255, 255, 100}; break;  // 浅黄
-            }
-            
-            int pulse_length = 2 + (rand() % 4);
-            float pulse_speed = 0.8f + (rand() % 100) / 100.0f * 1.2f;
-            
-            create_pulse(direction, pulse_color, pulse_length, pulse_speed, mid_energy / 100.0f);
-            
-            last_mid_pulse = current_time;
-        }
+
+    if (trigger && current_time - last_rp_launch > 8) {
+        float hue = s_rpal[pal_idx] + s_color_phase * 0.0006f;
+        int   len = 3 + (int)(strength * 4.0f);          // 3..7（保持中等长度）
+        float spd = 0.6f + strength * 1.0f;              // 0.6..1.6（保持中等速度，不更快）
+        launch_collision(len, spd, hue, 0.55f + 0.45f * strength);
+        last_rp_launch = current_time;
     }
-    last_mid_energy = mid_energy;
-    
-    // 高频节奏检测（镲片/高音乐器）
-    static float last_treble_energy = 0;
-    static uint32_t last_treble_pulse = 0;
-    
-    if (treble_energy > 35 && treble_energy > last_treble_energy * 2.0f) {
-        if (current_time - last_treble_pulse > 8) {
-            int direction = rand() % 2;
-            
-            // 高频使用明亮颜色
-            rgb_color_t pulse_color;
-            int color_type = rand() % 3;
-            
-            switch (color_type) {
-                case 0: pulse_color = (rgb_color_t){255, 255, 200}; break;  // 亮白
-                case 1: pulse_color = (rgb_color_t){200, 255, 255}; break;  // 亮青
-                case 2: pulse_color = (rgb_color_t){255, 200, 255}; break;  // 亮紫
-            }
-            
-            int pulse_length = 1 + (rand() % 3);
-            float pulse_speed = 1.5f + (rand() % 100) / 100.0f * 2.0f;
-            
-            create_pulse(direction, pulse_color, pulse_length, pulse_speed, treble_energy / 120.0f);
-            
-            last_treble_pulse = current_time;
-        }
-    }
-    last_treble_energy = treble_energy;
     
     // 4. 更新和绘制所有脉冲
     update_and_draw_pulses();
     
-    // 5. 添加频率能量背景显示
+    // 5. 频率能量背景：真频谱 + 色板冷暖渐变（低→高）
+    float inv_n = (led_count > 1) ? 1.0f / (float)(led_count - 1) : 1.0f;
     for (int i = 0; i < led_count; i++) {
-        // 将LED位置映射到频段
         int band_idx = (i * 6) / led_count;
         if (band_idx >= 6) band_idx = 5;
-        
-        float band_energy = band_energies[band_idx] / 50.0f;
-        
-        if (band_energy > 0.01f) {
-            // 背景能量显示（暗色调）
-            rgb_color_t bg_color;
-            
-            // 不同频段不同颜色
-            switch (band_idx) {
-                case 0: // 超低频：深红
-                    bg_color = (rgb_color_t){ (uint8_t)(band_energy * 40), 0, 0 };
-                    break;
-                case 1: // 低频：深橙
-                    bg_color = (rgb_color_t){ (uint8_t)(band_energy * 50), (uint8_t)(band_energy * 20), 0 };
-                    break;
-                case 2: // 中低频：深黄
-                    bg_color = (rgb_color_t){ (uint8_t)(band_energy * 60), (uint8_t)(band_energy * 60), 0 };
-                    break;
-                case 3: // 中频：深绿
-                    bg_color = (rgb_color_t){ 0, (uint8_t)(band_energy * 50), 0 };
-                    break;
-                case 4: // 高频：深蓝
-                    bg_color = (rgb_color_t){ 0, 0, (uint8_t)(band_energy * 60) };
-                    break;
-                case 5: // 超高频：深紫
-                    bg_color = (rgb_color_t){ (uint8_t)(band_energy * 30), 0, (uint8_t)(band_energy * 50) };
-                    break;
-                default:
-                    bg_color = (rgb_color_t){0, 0, 0};
-                    break;
-            }
-            
-            // 添加微弱的脉冲效果
-            float pulse_mod = sinf(animation_counter * 0.1f + i * 0.2f) * 0.1f + 0.9f;
-            bg_color.r = (uint8_t)(bg_color.r * pulse_mod);
-            bg_color.g = (uint8_t)(bg_color.g * pulse_mod);
-            bg_color.b = (uint8_t)(bg_color.b * pulse_mod);
-            
-            set_buffer_pixel_blend(i, bg_color, 0.4f);
+
+        float be = band_energies[band_idx] / 50.0f;
+        if (be > 0.01f) {
+            float hue = rpal_lerp((float)i * inv_n) + s_color_phase * 0.0006f;
+            float v = fminf(be * 0.5f, 1.0f);   // 背景偏暗，不抢脉冲
+            rgb_color_t bg = hsv_to_rgb(hue, 0.9f, v);
+            set_buffer_pixel_blend(i, bg, 0.5f);
         }
     }
     
@@ -2312,22 +2265,21 @@ static esp_err_t meteor_pulse_effect(float *energy_bands, int num_bands) {
         }
     }
     
-    // 背景效果：根据低频能量显示微弱背景光
-    float background_level = bass_energy / 50.0f;
-    if (background_level > 0.05f) {
+    // 背景：沿灯带流动的和谐渐变（随低音呼吸、随高音扩色域），底色不再单一
+    float bg_level = fminf(bass_energy / 55.0f, 1.0f);
+    if (bg_level > 0.03f) {
+        float drift = meteor_pulse_state.color_hue + s_color_phase * 0.0006f;
+        float span  = 0.22f + 0.22f * fminf(high_energy / 80.0f, 1.0f);  // 高频拓宽色域
+        float tcurve = (float)meteor_pulse_state.frame_counter;
+        float inv_n = (led_count > 1) ? 1.0f / (float)(led_count - 1) : 1.0f;
         for (int i = 0; i < led_count; i++) {
-            // 创建流动的背景光点
-            float wave_pos = (float)i / led_count * 2 * M_PI;
-            float time_factor = (float)meteor_pulse_state.frame_counter * 0.05f;
-            float wave_value = sinf(wave_pos + time_factor) * 0.5f + 0.5f;
-            
-            float brightness = background_level * 0.1f * wave_value;
-            
-            // 颜色跟随基础色调变化
-            float bg_hue = fmodf(meteor_pulse_state.color_hue + 0.5f, 1.0f);
-            rgb_color_t bg_color = hsv_to_rgb(bg_hue, 0.3f, brightness);
-            
-            set_buffer_pixel_blend(i, bg_color, 0.3f);
+            float t = (float)i * inv_n;
+            // 双锚点渐变 + 缓慢正弦扰动，避免死板
+            float hue = drift + t * span
+                      + 0.04f * sinf(t * 6.283f + tcurve * 0.03f);
+            float v = bg_level * (0.10f + 0.06f * (0.5f + 0.5f * sinf(t * 6.283f - tcurve * 0.02f)));
+            rgb_color_t bg_color = hsv_to_rgb(hue, 0.8f, v);
+            set_buffer_pixel_blend(i, bg_color, 0.45f);
         }
     }
     
@@ -2398,7 +2350,7 @@ static esp_err_t rhythm_breath_effect(float *energy_bands, int num_bands) {
 
 // 初始化跳跃段
 static void init_jump_segments(void) {
-    for (int i = 0; i < 8; i++) {
+    for (int i = 0; i < RJ_SEG; i++) {
         rhythm_jump_state.segments[i].height = 0.1f;  // 初始高度不为0
         rhythm_jump_state.segments[i].velocity = 0;
         rhythm_jump_state.segments[i].target_height = 0.1f;
@@ -2410,13 +2362,13 @@ static void init_jump_segments(void) {
         rhythm_jump_state.energy_peak[i] = 0;
         
         // 使用更鲜艳的颜色
-        float hue = (float)i / 8.0f;
+        float hue = (float)i / (float)RJ_SEG;
         rhythm_jump_state.segments[i].color = hsv_to_rgb(hue, 0.8f, 1.0f); // 饱和度和亮度都设为1
     }
 }
 
 static void update_physics_simulation(void) {
-    for (int i = 0; i < 8; i++) {
+    for (int i = 0; i < RJ_SEG; i++) {
         float displacement = rhythm_jump_state.segments[i].target_height - 
                            rhythm_jump_state.segments[i].height;
         
@@ -2460,265 +2412,78 @@ static void update_physics_simulation(void) {
 
 static esp_err_t rhythm_jump_effect(float *energy_bands, int num_bands) {
     if (!strip) return ESP_ERR_INVALID_STATE;
-    
+
     clear_color_buffer();
-    
+
     static bool initialized = false;
-    if (!initialized) {
-        init_jump_segments();
-        initialized = true;
-    }
-    
-    // 计算全局能量，用于增强整体响应
-    float global_energy = 0;
-    if (energy_bands && num_bands > 0) {
-        for (int i = 0; i < num_bands; i++) {
-            global_energy += energy_bands[i];
-        }
-        global_energy /= num_bands;
-    }
+    if (!initialized) { init_jump_segments(); initialized = true; }
 
     float rj_pulse = s_beat.pulse * (0.5f + g_fx.beat_react);
-    
-    float band_energies[8] = {0};
+
+    // 把 num_bands 个 FFT 频带均分成 RJ_SEG 段（低频在左）
+    float global_energy = 0;
+    float band_energies[RJ_SEG] = {0};
     if (energy_bands && num_bands > 0) {
-        int bands_per_segment = num_bands / 8;
-        for (int i = 0; i < 8; i++) {
-            for (int j = 0; j < bands_per_segment && (i * bands_per_segment + j) < num_bands; j++) {
-                band_energies[i] += energy_bands[i * bands_per_segment + j];
-            }
-            band_energies[i] /= bands_per_segment;
+        for (int i = 0; i < num_bands; i++) global_energy += energy_bands[i];
+        global_energy /= num_bands;
+        for (int s = 0; s < RJ_SEG; s++) {
+            int lo = (s * num_bands) / RJ_SEG;
+            int hi = ((s + 1) * num_bands) / RJ_SEG;
+            if (hi <= lo) hi = lo + 1;
+            if (hi > num_bands) hi = num_bands;
+            float sum = 0; int cnt = 0;
+            for (int j = lo; j < hi; j++) { sum += energy_bands[j]; cnt++; }
+            band_energies[s] = cnt ? (sum / cnt) : 0.0f;
         }
     }
-    
-    for (int i = 0; i < 8; i++) {
-        // 使用更快的平滑，响应更迅速
-        float smooth_factor = 0.6f;
-        rhythm_jump_state.energy_history[i] = 
-            rhythm_jump_state.energy_history[i] * smooth_factor + 
-            band_energies[i] * (1.0f - smooth_factor);
-        
-        // 更新能量峰值
-        if (band_energies[i] > rhythm_jump_state.energy_peak[i]) {
-            rhythm_jump_state.energy_peak[i] = band_energies[i];
-        } else {
-            rhythm_jump_state.energy_peak[i] *= rhythm_jump_state.peak_decay;
-        }
-        
-        float energy = rhythm_jump_state.energy_history[i];
-        float peak_energy = rhythm_jump_state.energy_peak[i];
-        
-        // 增强的能量映射
-        float target_height = 0;
-        
-        // 低频段（0-1）响应更强
-        if (i < 2) {
-            target_height = fminf(energy / 25.0f, 1.5f);  // 降低分母，增加高度
-            if (peak_energy > 40) {
-                target_height *= 1.0f;  // 峰值时额外增强
-            }
-            rhythm_jump_state.segments[i].stiffness = 0.25f;
-        } 
-        // 中频段（2-4）
-        else if (i < 5) {
-            target_height = fminf(energy / 35.0f, 1.2f);
-            if (peak_energy > 50) {
-                target_height *= 1.2f;
-            }
-            rhythm_jump_state.segments[i].stiffness = 0.35f;
-        } 
-        // 高频段（5-7）
-        else {
-            target_height = fminf(energy / 45.0f, 1.0f);
-            if (peak_energy > 60) {
-                target_height *= 1.1f;
-            }
-            rhythm_jump_state.segments[i].stiffness = 0.45f;
-        }
-        
-        // 全局能量增强
-        target_height *= (1.0f + global_energy * 0.01f);
-        
-        // 确保最小高度（压得很低，安静时接近熄灭，突出鼓点对比）
-        if (target_height < 0.04f) target_height = 0.04f;
-        
-        rhythm_jump_state.segments[i].target_height = target_height + rj_pulse * 1.2f;
+
+    // 每段弹簧目标高度：能量越大跳得越高（低音敏感）
+    for (int s = 0; s < RJ_SEG; s++) {
+        rhythm_jump_state.energy_history[s] =
+            rhythm_jump_state.energy_history[s] * 0.6f + band_energies[s] * 0.4f;
+        float hn = fminf(rhythm_jump_state.energy_history[s] / 35.0f, 1.0f);
+        rhythm_jump_state.segments[s].target_height = hn + rj_pulse * 0.8f;
     }
-    
+
     update_physics_simulation();
-    
-    // 颜色变化
+
+    // 颜色：沿整条连续渐变（低→高），随 color_speed 缓慢流动
     rhythm_jump_state.color_hue += rhythm_jump_state.hue_speed * g_fx.color_speed;
-    if (rhythm_jump_state.color_hue > 1.0f) {
-        rhythm_jump_state.color_hue -= 1.0f;
+    if (rhythm_jump_state.color_hue > 1.0f) rhythm_jump_state.color_hue -= 1.0f;
+
+    float base_hue = rhythm_jump_state.color_hue + s_color_phase * 0.0004f;
+    const float span = 0.35f;                      // 低频->高频 的色相跨度
+    float inv_n = (led_count > 1) ? 1.0f / (float)(led_count - 1) : 1.0f;
+    float cell = (float)led_count / (float)RJ_SEG;
+    float boost = rhythm_jump_state.brightness_boost * (1.0f + 0.4f * rj_pulse);
+
+    for (int led = 0; led < led_count; led++) {
+        int seg = (int)((float)led / cell);
+        if (seg >= RJ_SEG) seg = RJ_SEG - 1;
+        float height = rhythm_jump_state.segments[seg].height;
+        if (height > 1.0f) height = 1.0f;
+
+        // 段内位置 0..1（0=段底/左）
+        float in_seg = ((float)led - (float)seg * cell) / cell;
+        if (in_seg < 0.0f) in_seg = 0.0f;
+        if (in_seg > 1.0f) in_seg = 1.0f;
+
+        // 抗锯齿柱状：段内被"高度"覆盖多少
+        float fill = height * cell;
+        float cover = fill - in_seg * cell;
+        if (cover > 1.0f) cover = 1.0f;
+        if (cover < 0.0f) cover = 0.0f;
+
+        float hue = base_hue + (float)led * inv_n * span;
+        float v = (0.06f + 0.94f * cover) * boost;
+        if (cover > 0.0f && cover < 1.0f) v += 0.3f;   // 顶部波头提亮
+        if (v > 1.0f) v = 1.0f;
+
+        rgb_color_t color = hsv_to_rgb(hue, 0.95f - 0.25f * cover, v);
+        led_out_pixel(led, color);
     }
-    
-    int leds_per_segment = led_count / 8;
-    int extra_leds = led_count % 8;
-    
-    // 计算全局亮度增强
-    float global_brightness = 1.0f + global_energy * 0.02f;
-    if (global_brightness > 1.5f) global_brightness = 1.5f;
-    
-    for (int segment = 0; segment < 8; segment++) {
-        int start_led = segment * leds_per_segment;
-        if (segment < extra_leds) {
-            start_led += segment;
-        } else {
-            start_led += extra_leds;
-        }
-        
-        int segment_leds = leds_per_segment;
-        if (segment < extra_leds) {
-            segment_leds++;
-        }
-        
-        float height = rhythm_jump_state.segments[segment].height;
-        int lit_leds = (int)(height * segment_leds);
-        if (lit_leds > segment_leds) lit_leds = segment_leds;
-        
-        // 动态颜色：根据高度变化色调和饱和度（脉冲时更白更亮）
-        float hue = fmodf(rhythm_jump_state.color_hue + (segment * 0.125f), 1.0f);
-        float saturation = 1.0f - height * 0.2f - rj_pulse * 0.4f;  // 高度越高、脉冲越强越白
-        if (saturation < 0.5f) saturation = 0.5f;
-        
-        // 动态亮度：底色很暗，高度/鼓点越强才越亮，对比拉满
-        float value = (0.06f + height * 0.95f) * global_brightness *
-                      (rhythm_jump_state.brightness_boost + 0.7f * rj_pulse);
-        if (value > 1.0f) value = 1.0f;
-        
-        rgb_color_t segment_color = hsv_to_rgb(hue, saturation, value);
-        
-        // 增强的发光效果：不仅仅是点亮，还有渐变
-        for (int i = 0; i < segment_leds; i++) {
-            int led_index = start_led + i;
-            if (led_index >= led_count) break;
-            
-            if (i < lit_leds) {
-                // 使用更明显的渐变：底部到顶部
-                float position_factor = (float)i / lit_leds;
-                
-                // 非线性渐变，让顶部更亮
-                float led_brightness = 0.4f + powf(position_factor, 1.5f) * 0.6f;
-                
-                // 添加一些颜色变化：从底部的暖色到顶部的冷色
-                float color_shift = position_factor * 0.1f;
-                rgb_color_t led_color = segment_color;
-                
-                // 调整颜色
-                led_color.r = (uint8_t)(segment_color.r * led_brightness);
-                led_color.g = (uint8_t)(segment_color.g * led_brightness * (1.0f - color_shift));
-                led_color.b = (uint8_t)(segment_color.b * led_brightness * (1.0f + color_shift));
-                
-                set_buffer_pixel(led_index, led_color);
-                
-                // 增强光晕效果
-                if (led_brightness > 0.3f) {
-                    float glow_intensity = led_brightness * 0.4f;  // 增强光晕强度
-                    rgb_color_t glow_color = {
-                        .r = (uint8_t)(segment_color.r * glow_intensity),
-                        .g = (uint8_t)(segment_color.g * glow_intensity),
-                        .b = (uint8_t)(segment_color.b * glow_intensity)
-                    };
-                    
-                    // 向两侧扩散光晕
-                    for (int offset = 1; offset <= 2; offset++) {
-                        if (led_index - offset >= 0) {
-                            float distance_factor = 1.0f - (offset * 0.3f);
-                            set_buffer_pixel_blend(led_index - offset, glow_color, 0.4f * distance_factor);
-                        }
-                        if (led_index + offset < led_count) {
-                            float distance_factor = 1.0f - (offset * 0.3f);
-                            set_buffer_pixel_blend(led_index + offset, glow_color, 0.4f * distance_factor);
-                        }
-                    }
-                }
-            } else {
-                // 背景光：很暗的余光，安静时接近黑，突出鼓点
-                float background_brightness = 0.05f + height * 0.04f;
-                rgb_color_t bg_color = {
-                    .r = (uint8_t)(segment_color.r * background_brightness * 0.25f),
-                    .g = (uint8_t)(segment_color.g * background_brightness * 0.25f),
-                    .b = (uint8_t)(segment_color.b * background_brightness * 0.25f)
-                };
-                
-                set_buffer_pixel(led_index, bg_color);
-            }
-        }
-        
-        // 顶部特效：当跳动到一定高度时
-        if (height > 0.2f && lit_leds > 0) {
-            int top_led = start_led + lit_leds - 1;
-            if (top_led < led_count) {
-                // 顶部高亮光点
-                float top_brightness = 0.8f + height * 0.4f;
-                if (top_brightness > 1.0f) top_brightness = 1.0f;
-                
-                rgb_color_t top_color = {
-                    .r = (uint8_t)(255 * top_brightness),
-                    .g = (uint8_t)(255 * top_brightness * 0.9f),
-                    .b = (uint8_t)(200 * top_brightness)
-                };
-                set_buffer_pixel_blend(top_led, top_color, 0.9f);
-                
-                // 顶部粒子效果
-                if (height > 0.5f && (animation_counter + segment) % 3 == 0) {
-                    for (int p = 0; p < 2; p++) {
-                        int particle_pos = top_led + (rand() % 5) - 2;
-                        if (particle_pos >= 0 && particle_pos < led_count) {
-                            float particle_brightness = 0.5f + (rand() % 50) / 100.0f;
-                            float particle_hue = fmodf(rhythm_jump_state.color_hue + 0.3f, 1.0f);
-                            rgb_color_t particle_color = hsv_to_rgb(particle_hue, 0.8f, particle_brightness);
-                            set_buffer_pixel_blend(particle_pos, particle_color, 0.7f);
-                        }
-                    }
-                }
-            }
-        }
-        
-        // 底部发光：模拟地面反光
-        if (height > 0.3f) {
-            int bottom_led = start_led;
-            if (bottom_led < led_count) {
-                float ground_glow = height * 0.2f;
-                rgb_color_t ground_color = {
-                    .r = (uint8_t)(segment_color.r * ground_glow),
-                    .g = (uint8_t)(segment_color.g * ground_glow),
-                    .b = (uint8_t)(segment_color.b * ground_glow)
-                };
-                set_buffer_pixel_blend(bottom_led, ground_color, 0.4f);
-            }
-        }
-    }
-    
-    // 添加全局效果：根据全局能量添加闪烁
-    if (global_energy > 30 && (animation_counter % 10) == 0) {
-        float flash_intensity = fminf(global_energy / 100.0f, 0.3f);
-        rgb_color_t flash_color = {255, 255, 200};
-        
-        // 在随机位置添加闪烁点
-        for (int f = 0; f < 3; f++) {
-            int flash_pos = rand() % led_count;
-            set_buffer_pixel_blend(flash_pos, flash_color, flash_intensity);
-        }
-    }
-    
-    // 分段分隔线：更柔和
-    for (int segment = 1; segment < 8; segment++) {
-        int divider_led = (segment * leds_per_segment) + 
-                         (segment < extra_leds ? segment : extra_leds) - 1;
-        if (divider_led >= 0 && divider_led < led_count) {
-            float divider_brightness = 0.1f + global_energy * 0.005f;
-            rgb_color_t divider_color = {
-                .r = (uint8_t)(40 * divider_brightness),
-                .g = (uint8_t)(40 * divider_brightness),
-                .b = (uint8_t)(60 * divider_brightness)
-            };
-            set_buffer_pixel_blend(divider_led, divider_color, 0.2f);
-        }
-    }
-    
-    return apply_color_buffer();
+
+    return ESP_OK;
 }
 
 // 初始化闪烁数组
@@ -3089,23 +2854,26 @@ static float rgb_to_hue(rgb_color_t color) {
     return hue / 360.0f;
 }
 // 初始化离子粒子
-static void init_ion_particle(ion_particle_t *ion, int direction, rgb_color_t color) {
+static void init_ion_particle(ion_particle_t *ion, int direction, rgb_color_t color, float strength) {
     if (!ion) return;
-    
+    if (strength < 0.0f) strength = 0.0f;
+    if (strength > 1.0f) strength = 1.0f;
+
     ion->active = true;
     ion->direction = direction;
     ion->color = color;
     ion->brightness = 1.0f;
-    ion->trail_length = 4.0f;  // 增加拖尾长度
-    ion->size = 2.5f;          // 增加离子大小
+    ion->trail_length = 3.0f + 3.0f * strength;   // 越强拖尾越长
+    ion->size = 2.0f + 1.5f * strength;           // 越强离子越大
     ion->spawn_time = animation_counter;
-    
+
+    float spd = 0.55f + 1.1f * strength;          // 越强飞得越快 → 越快越猛碰撞
     if (direction == 1) {
-        ion->position = -8.0f;  // 从更远的地方开始
-        ion->velocity = 0.8f;   // 增加速度
+        ion->position = -8.0f;
+        ion->velocity = spd;
     } else {
         ion->position = led_count + 8.0f;
-        ion->velocity = -0.8f;
+        ion->velocity = -spd;
     }
 }
 
@@ -3302,7 +3070,9 @@ static esp_err_t explosion_collision_effect(float *energy_bands, int num_bands) 
     if (!strip) return ESP_ERR_INVALID_STATE;
     
     clear_color_buffer();
-    
+
+    const led_beat_t *bt = led_get_beat();
+
     float bass_energy = 0, mid_energy = 0, high_energy = 0, total_energy = 0;
     
     if (energy_bands && num_bands > 0) {
@@ -3330,46 +3100,61 @@ static esp_err_t explosion_collision_effect(float *energy_bands, int num_bands) 
     
     explosion_collision_state.state_timer++;
     
+    // 每帧评估触发（不再只在 IDLE）：鼓点决定频率，粒子残留期也可再触发
+    uint32_t current_time = animation_counter;
+    bool can_launch = (explosion_collision_state.state == STATE_IDLE ||
+                       explosion_collision_state.state == STATE_PARTICLE_PHASE);
+
+    bool beat_hit = (bt && bt->onset && bt->bass > 15.0f);
+    float strength = 0.45f;
+    if (bt) {
+        float b = fmaxf(bt->bass, bass_energy);
+        strength = 0.35f + 0.65f * fminf(b / 90.0f, 1.0f);
+    }
+    bool launch = false;
+    if (beat_hit) {
+        launch = true;
+        explosion_collision_state.last_onset_time = current_time;
+    }
+
+    // 次触发：全带能量骤增（补充非鼓点高潮）
+    if (!launch &&
+        total_energy > explosion_collision_state.energy_threshold &&
+        total_energy > explosion_collision_state.last_energy * 1.5f) {
+        launch = true;
+    }
+
+    // 兜底：长时间无鼓点时按 BPM(或默认)间隔发射，静默/环境声也有动态
+    float interval = explosion_collision_state.launch_interval;
+    if (bt && bt->bpm >= 60 && bt->bpm <= 200) {
+        interval = (60.0f / (float)bt->bpm) * 30.0f;   // 一拍 ≈ 30fps × 秒数
+    }
+    bool no_beat_while = (current_time - explosion_collision_state.last_onset_time) >
+                         (uint32_t)(interval * 3.0f);
+    if (!launch && no_beat_while &&
+        current_time - explosion_collision_state.last_launch_time > (uint32_t)interval) {
+        launch = true;
+    }
+
+    if (launch && can_launch &&
+        current_time - explosion_collision_state.last_launch_time > 6) {
+        rgb_color_t left_color = get_ion_color_from_energy(
+            bass_energy, mid_energy, high_energy, 1);
+        rgb_color_t right_color = get_ion_color_from_energy(
+            bass_energy, mid_energy, high_energy, -1);
+
+        init_ion_particle(&explosion_collision_state.left_ion, 1, left_color, strength);
+        init_ion_particle(&explosion_collision_state.right_ion, -1, right_color, strength);
+
+        explosion_collision_state.launch_strength = strength;
+        explosion_collision_state.last_launch_time = current_time;
+        explosion_collision_state.state = STATE_ION_FLYING;
+        explosion_collision_state.state_timer = 0;
+    }
+
     switch (explosion_collision_state.state) {
-        case STATE_IDLE: {
-            bool should_launch = false;
-            uint32_t current_time = animation_counter;
-            
-            // 基于能量的发射条件
-            if (total_energy > explosion_collision_state.energy_threshold) {
-                // 能量突然增加时发射
-                if (total_energy > explosion_collision_state.last_energy * 1.3f) {
-                    should_launch = true;
-                }
-                
-                // 高能量时发射概率增加
-                if (total_energy > 50.0f && rand() % 100 < 30) {
-                    should_launch = true;
-                }
-            }
-            
-            // 时间间隔发射
-            if (current_time - explosion_collision_state.last_launch_time > 
-                explosion_collision_state.launch_interval) {
-                should_launch = true;
-            }
-            
-            if (should_launch) {
-                rgb_color_t left_color = get_ion_color_from_energy(
-                    bass_energy, mid_energy, high_energy, 1);
-                rgb_color_t right_color = get_ion_color_from_energy(
-                    bass_energy, mid_energy, high_energy, -1);
-                
-                init_ion_particle(&explosion_collision_state.left_ion, 1, left_color);
-                init_ion_particle(&explosion_collision_state.right_ion, -1, right_color);
-                
-                explosion_collision_state.last_launch_time = current_time;
-                explosion_collision_state.state = STATE_ION_FLYING;
-                explosion_collision_state.state_timer = 0;
-            }
-            
+        case STATE_IDLE:
             break;
-        }
         
         case STATE_ION_FLYING: {
             // 更新离子位置
@@ -3409,7 +3194,8 @@ static esp_err_t explosion_collision_effect(float *energy_bands, int num_bands) 
                 float collision_speed = fabsf(explosion_collision_state.left_ion.velocity) +
                                       fabsf(explosion_collision_state.right_ion.velocity);
                 float collision_intensity = fminf(collision_speed * 1.5f, 1.5f);
-                collision_intensity = fmaxf(collision_intensity, total_energy / 50.0f);
+                collision_intensity = fmaxf(collision_intensity, explosion_collision_state.launch_strength);
+                collision_intensity = fmaxf(collision_intensity, fx_beat() * 1.2f);
                 
                 rgb_color_t explosion_color = mix_ion_colors(
                     explosion_collision_state.left_ion.color,
@@ -3494,7 +3280,7 @@ static esp_err_t explosion_collision_effect(float *energy_bands, int num_bands) 
     // 绘制离子
     if (explosion_collision_state.state == STATE_ION_FLYING) {
         if (explosion_collision_state.left_ion.active) {
-            float ion_brightness = explosion_collision_state.left_ion.brightness;
+            float ion_brightness = explosion_collision_state.left_ion.brightness * (0.85f + 0.35f * fx_beat());
             float pos = explosion_collision_state.left_ion.position;
             
             int core_pos = (int)pos;
@@ -3562,7 +3348,7 @@ static esp_err_t explosion_collision_effect(float *energy_bands, int num_bands) 
         }
         
         if (explosion_collision_state.right_ion.active) {
-            float ion_brightness = explosion_collision_state.right_ion.brightness;
+            float ion_brightness = explosion_collision_state.right_ion.brightness * (0.85f + 0.35f * fx_beat());
             float pos = explosion_collision_state.right_ion.position;
             
             int core_pos = (int)pos;
@@ -3771,6 +3557,7 @@ static esp_err_t explosion_collision_effect(float *energy_bands, int num_bands) 
 static float s_pk_level[PEAK_HOLD_MAX_LEDS];
 static float s_pk_peak[PEAK_HOLD_MAX_LEDS];
 static float s_pk_agc[PEAK_HOLD_MAX_LEDS];
+static float s_pk_sm[PEAK_HOLD_MAX_LEDS];
 static float s_sp_level[PEAK_HOLD_MAX_LEDS];
 static float s_sp_agc[PEAK_HOLD_MAX_LEDS];
 
@@ -3804,6 +3591,7 @@ static esp_err_t peak_hold_effect(float *energy_bands, int num_bands)
     int eff = num_bands - 1;
     if (eff <= 0) eff = 1;
 
+    // 1) 每灯更新 level/peak（attack 快、release 慢 + 峰值余晖）
     for (int i = 0; i < led_count; i++) {
         int band = (i * eff) / led_count + 1;
         if (band >= num_bands) band = num_bands - 1;
@@ -3813,33 +3601,39 @@ static esp_err_t peak_hold_effect(float *energy_bands, int num_bands)
         if (target > s_pk_level[i]) {
             s_pk_level[i] += (target - s_pk_level[i]) * 0.55f;
         } else {
-            s_pk_level[i] += (target - s_pk_level[i]) * 0.05f;
+            s_pk_level[i] += (target - s_pk_level[i]) * 0.06f;
         }
 
         if (s_pk_level[i] > s_pk_peak[i]) {
             s_pk_peak[i] = s_pk_level[i];
         } else {
-            s_pk_peak[i] *= 0.984f;
+            s_pk_peak[i] *= 0.985f;
         }
         if (s_pk_peak[i] < 0.002f) s_pk_peak[i] = 0.0f;
+    }
 
-        float value = 0.10f + 0.90f * (0.45f * s_pk_level[i] + 0.55f * s_pk_peak[i]);
-        value += fx_beat() * 0.5f;
-        if (value > 1.0f) value = 1.0f;
+    // 2) 空间 3 点平滑：把锯齿变成平滑山形
+    for (int i = 0; i < led_count; i++) {
+        float l = (i > 0) ? s_pk_level[i - 1] : s_pk_level[i];
+        float r = (i < led_count - 1) ? s_pk_level[i + 1] : s_pk_level[i];
+        s_pk_sm[i] = (l + 2.0f * s_pk_level[i] + r) * 0.25f;
+    }
+
+    // 3) 渲染：低→高渐变；波峰处同色更亮更饱和（不再变白）
+    for (int i = 0; i < led_count; i++) {
+        float lvl = s_pk_sm[i];
+        float pk  = s_pk_peak[i];
+        float body = fmaxf(lvl, pk * 0.75f);            // 余晖让山体更饱满
 
         float hue = eq_hue_at(i, led_count);
-        bool hot = ((s_pk_level[i] >= s_pk_peak[i] - 0.03f) && (s_pk_level[i] > 0.30f)) ||
-                   (s_beat.onset && s_beat.bass > 25.0f);
+        bool crest = (lvl >= pk - 0.02f && lvl > 0.25f); // 正在波峰（上升沿）
 
-        rgb_color_t color;
-        if (hot) {
-            uint8_t w = (uint8_t)(255.0f * s_pk_level[i]);
-            color.r = w;
-            color.g = w;
-            color.b = w;
-        } else {
-            color = hsv_to_rgb(hue, 0.88f, value);
-        }
+        float v = 0.04f + 0.96f * powf(body, 0.85f);     // 提高对比、压低底光
+        v += fx_beat() * 0.25f;
+        if (crest) v += 0.25f;
+        if (v > 1.0f) v = 1.0f;
+
+        rgb_color_t color = hsv_to_rgb(hue, crest ? 1.0f : 0.9f, v);
         led_out_pixel(i, color);
     }
     return ESP_OK;
@@ -3906,6 +3700,11 @@ static esp_err_t rainbow_effect(float *energy_bands, int num_bands)
 static struct { float pos; float spd; float size; float tw; float hue; } s_star[SF_MAX];
 static bool s_star_init = false;
 
+// 星云色团：和谐"银河"色板（蓝→紫→品红），大而软的漂移色团铺底
+#define NEB_MAX 3
+static const float s_neb_palette[NEB_MAX] = { 0.58f, 0.72f, 0.86f };
+static struct { float pos; float spd; float sigma; } s_neb[NEB_MAX];
+
 static esp_err_t starfield_effect(float *energy_bands, int num_bands)
 {
     (void)energy_bands;
@@ -3919,7 +3718,14 @@ static esp_err_t starfield_effect(float *energy_bands, int num_bands)
             s_star[i].spd = 0.15f + (float)i / SF_MAX * 0.85f;
             s_star[i].size = 0.35f + ((float)rand() / RAND_MAX) * 0.65f;
             s_star[i].tw = ((float)rand() / RAND_MAX) * 6.283f;
-            s_star[i].hue = 0.5f + ((float)rand() / RAND_MAX) * 0.15f;
+            // 星辰取自和谐色板，颜色丰富但协调
+            s_star[i].hue = s_neb_palette[i % NEB_MAX] +
+                            (((float)rand() / RAND_MAX) - 0.5f) * 0.12f;
+        }
+        for (int i = 0; i < NEB_MAX; i++) {
+            s_neb[i].pos   = ((float)rand() / RAND_MAX) * led_count;
+            s_neb[i].spd   = 0.10f + 0.10f * i + ((float)rand() / RAND_MAX) * 0.08f;
+            s_neb[i].sigma = 4.0f + ((float)rand() / RAND_MAX) * 2.5f;
         }
         s_star_init = true;
     }
@@ -3929,6 +3735,31 @@ static esp_err_t starfield_effect(float *energy_bands, int num_bands)
     float treble = fminf(b->high / 120.0f, 1.0f);
 
     clear_color_buffer();
+
+    // 1) 星云色团铺底：大而软的漂移色团，色相随时间缓慢流动，随鼓点呼吸
+    float neb_drift = s_color_phase * 0.0006f;
+    float neb_gain  = 0.28f + 0.22f * beat;
+    for (int i = 0; i < NEB_MAX; i++) {
+        s_neb[i].pos += s_neb[i].spd * fmaxf(g_fx.speed, 0.2f);
+        while (s_neb[i].pos >= led_count) s_neb[i].pos -= led_count;
+        if (s_neb[i].pos < 0) s_neb[i].pos += led_count;
+
+        float hue = s_neb_palette[i] + neb_drift;
+        float sigma = s_neb[i].sigma;
+        for (int led = 0; led < led_count; led++) {
+            float dd = fabsf((float)led - s_neb[i].pos);
+            float wrap = (float)led_count - dd;
+            float dist = dd < wrap ? dd : wrap;
+            float g = expf(-(dist * dist) / (2.0f * sigma * sigma));
+            float v = g * neb_gain;
+            if (v > 0.02f) {
+                rgb_color_t ncolor = hsv_to_rgb(hue, 0.9f, 1.0f);
+                set_buffer_pixel_blend(led, ncolor, v);
+            }
+        }
+    }
+
+    // 2) 星辰叠于色团之上
     for (int i = 0; i < SF_MAX; i++) {
         float st = s_star[i].spd * (1.0f + beat * 3.5f) * fmaxf(g_fx.speed, 0.2f);
         s_star[i].pos += st;
@@ -4077,7 +3908,12 @@ static esp_err_t heartbeat_effect(float *energy_bands, int num_bands)
     if (!strip) return ESP_ERR_INVALID_STATE;
 
     static float hb_env = 0.0f;
-    if (s_beat.onset) hb_env = 1.0f;
+    static float hb_hue = 0.97f;               // 当前心跳颜色
+    if (s_beat.onset) {
+        hb_env = 1.0f;
+        hb_hue += 0.15f;                       // 每跳一次切换一次颜色
+        if (hb_hue >= 1.0f) hb_hue -= 1.0f;
+    }
     hb_env *= 0.90f;
     float p = fmaxf(hb_env, fx_beat());
 
@@ -4087,7 +3923,7 @@ static esp_err_t heartbeat_effect(float *energy_bands, int num_bands)
         float d = fabsf((float)i - half) / half;   // 中心最亮，向两端衰减
         float value = 0.04f + 0.96f * p * (1.0f - 0.6f * d);
         if (value > 1.0f) value = 1.0f;
-        float hue = 0.97f;                          // 红色心跳
+        float hue = hb_hue;                         // 每跳切换的颜色
         rgb_color_t color = hsv_to_rgb(hue, 0.95f, value);
         led_out_pixel(i, color);
     }
