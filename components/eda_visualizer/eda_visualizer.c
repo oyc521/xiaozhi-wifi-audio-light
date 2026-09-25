@@ -13,6 +13,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -32,7 +33,7 @@ static const char *TAG = "EDA_VIS";
 
 static fft_processor_t s_fft;
 static bool s_started = false;
-static led_mode_t s_current_mode = MODE_SPECTRUM;
+static led_mode_t s_current_mode = MODE_AURORA;
 static uint32_t s_frame_count = 0;
 static bool s_auto_follow = true;
 static eda_audio_src_t s_audio_src = EDA_AUDIO_SRC_MIC;
@@ -42,7 +43,7 @@ static bool s_music_mode = false;
 static eda_ai_audio_cb_t s_ai_cb = NULL;
 static int64_t s_stream_lost_us = 0;
 static bool s_prev_streaming = false;
-static float s_silent_bands[NUM_FREQ_BANDS];   // 聊天模式静音频带（情绪场景）
+static float s_chat_bands[NUM_FREQ_BANDS];     // 聊天模式合成"慢呼吸"频谱
 
 // ---------------- 命令投递 ----------------
 
@@ -106,27 +107,35 @@ void eda_visualizer_get_spectrum(uint8_t *out32) {
     led_get_spectrum(out32, 32);
 }
 
-// 情绪 -> (灯效 + 色相 + 强度) 映射。聊天模式用它驱动；音乐模式忽略。
+// 情绪 -> 色相/亮度（染色）。聊天模式下常驻灯效不变，仅随情绪变色；音乐模式忽略。
 void eda_visualizer_set_emotion(const char *emotion) {
     if (!emotion || s_music_mode) return;   // 音乐模式优先
 
-    led_mode_t mode = MODE_AURORA;
-    float hue = 0.09f, intensity = 0.9f;
-    if      (strcmp(emotion, "happy") == 0)     { mode = MODE_AURORA; hue = 0.08f; intensity = 1.3f; }
-    else if (strcmp(emotion, "laughing") == 0)  { mode = MODE_AURORA; hue = 0.10f; intensity = 1.4f; }
-    else if (strcmp(emotion, "sad") == 0)       { mode = MODE_AURORA; hue = 0.62f; intensity = 0.75f; }
-    else if (strcmp(emotion, "angry") == 0)     { mode = MODE_AURORA; hue = 0.98f; intensity = 1.6f; }
-    else if (strcmp(emotion, "thinking") == 0)  { mode = MODE_AURORA; hue = 0.50f; intensity = 1.0f; }
-    else if (strcmp(emotion, "surprised") == 0) { mode = MODE_AURORA; hue = 0.13f; intensity = 1.5f; }
-    else if (strcmp(emotion, "cool") == 0)      { mode = MODE_AURORA; hue = 0.55f; intensity = 1.1f; }
-    else                                        { mode = MODE_AURORA; hue = 0.09f; intensity = 0.9f; } // neutral
+    float hue = 0.09f, intensity = 0.9f;                 // neutral: 暖白、柔和
+    if      (strcmp(emotion, "happy") == 0)     { hue = 0.08f; intensity = 1.3f; }
+    else if (strcmp(emotion, "laughing") == 0)  { hue = 0.10f; intensity = 1.5f; }
+    else if (strcmp(emotion, "sad") == 0)       { hue = 0.62f; intensity = 0.70f; }
+    else if (strcmp(emotion, "angry") == 0)     { hue = 0.98f; intensity = 1.6f; }
+    else if (strcmp(emotion, "thinking") == 0)  { hue = 0.50f; intensity = 1.0f; }
+    else if (strcmp(emotion, "surprised") == 0) { hue = 0.13f; intensity = 1.5f; }
+    else if (strcmp(emotion, "cool") == 0)      { hue = 0.55f; intensity = 1.1f; }
 
-    eda_visualizer_set_mode(mode);   // 锁定灯效（不被状态切换覆盖）
     led_fx_t fx = *led_get_fx();
     fx.hue = hue;
     fx.intensity = intensity;
     eda_visualizer_set_fx(&fx);
-    ESP_LOGD(TAG, "情绪灯: %s -> mode=%d hue=%.2f", emotion, (int)mode, hue);
+    ESP_LOGD(TAG, "情绪染色: %s -> hue=%.2f intensity=%.2f", emotion, hue, intensity);
+}
+
+// 合成"慢呼吸"频谱：聊天模式常驻用，让所有效果（含音频/节拍型）都能动
+static void synth_chat_bands(float t_sec) {
+    const float breath = 0.55f + 0.45f * sinf(2.0f * 3.14159265f * t_sec / 4.0f);  // ~4s 呼吸
+    float phase = t_sec - 2.5f * floorf(t_sec / 2.5f);                              // ~2.5s 一次脉冲
+    const float pulse = (phase < 0.30f) ? (1.0f - phase / 0.30f) : 0.0f;           // 给节拍引擎做 onset
+    for (int i = 0; i < NUM_FREQ_BANDS; i++) {
+        float shape = 1.0f - 0.55f * ((float)i / (float)(NUM_FREQ_BANDS - 1));      // 低频略强
+        s_chat_bands[i] = (breath * 45.0f + pulse * 140.0f) * shape;
+    }
 }
 
 led_mode_t eda_visualizer_get_mode(void) {
@@ -296,7 +305,7 @@ static void apply_command(const core_command_t *cmd) {
 static void vis_task(void *arg) {
     int brightness = (int)arg;
     led_set_brightness((uint8_t)brightness);
-    led_set_mode(MODE_SPECTRUM);
+    led_set_mode(MODE_AURORA);   // 聊天模式常驻默认=极光（氛围友好）
 
     TickType_t last_wake = xTaskGetTickCount();
     while (true) {
@@ -341,8 +350,11 @@ static void vis_task(void *arg) {
             }
         }
 
-        // 3. 驱动灯效：音乐模式=FFT 频带；聊天模式=静音频带（情绪场景的时间动画）
-        led_update_visualization(s_music_mode ? s_fft.frequency_bands : s_silent_bands,
+        // 3. 驱动灯效：音乐模式=FFT 频带；聊天模式=合成"慢呼吸"频谱（让所有效果都能动）
+        if (!s_music_mode) {
+            synth_chat_bands((float)esp_timer_get_time() / 1000000.0f);
+        }
+        led_update_visualization(s_music_mode ? s_fft.frequency_bands : s_chat_bands,
                                  NUM_FREQ_BANDS);
 
         // 4. 刷新共享状态（供 Web 控制台 / MCP 读取）
