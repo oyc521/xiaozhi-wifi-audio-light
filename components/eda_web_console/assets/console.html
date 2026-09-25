@@ -152,7 +152,7 @@
             <div class="card">
                 <h2><span class="bar"></span>实时频谱 (32 段)</h2>
                 <canvas id="spec" style="width:100%;height:150px;display:block;border-radius:12px;background:rgba(0,0,0,0.25);"></canvas>
-                <div class="beat"><span>低频 20Hz</span><span id="spec-state" style="color:var(--muted)">— 未连接 —</span><span>8kHz 高频</span></div>
+                <div class="beat"><span>低频 20Hz</span><span>8kHz 高频</span></div>
             </div>
 
             <div class="card">
@@ -469,13 +469,10 @@ async function pollSpec(){
         const r = await api('/api/spectrum');
         if(r && r.bands){
             specData = r.bands;
-            el('spec-state').textContent = '● 已连接';
-            el('spec-state').style.color = 'var(--ok)';
             drawSpec();
         }
     }catch(e){
-        el('spec-state').textContent = '— 未连接 —';
-        el('spec-state').style.color = 'var(--muted)';
+        /* 连接状态由顶栏指示灯体现，这里静默 */
     }
 }
 function drawSpec(){

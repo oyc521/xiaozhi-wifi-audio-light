@@ -12,7 +12,7 @@ extern "C" {
 #define FFT_SIZE          512      // FFT点数
 #define FFT_OUTPUT_SIZE   (FFT_SIZE / 2)  // 输出点数（对称）
 #ifndef NUM_FREQ_BANDS
-#define NUM_FREQ_BANDS    8        // 频带数量（显示谱段数，led_controller 侧默认 32）
+#define NUM_FREQ_BANDS    32       // 频带数量（与 led_controller 的 32 段显示谱对齐）
 #endif
 
 // PCM 环形缓冲容量（int16 样本数），2 的幂
