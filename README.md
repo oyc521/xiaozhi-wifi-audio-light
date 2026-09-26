@@ -39,23 +39,22 @@
 ```
 ┌────────────── 小智框架层 ──────────────┐
 │ Application(状态机) / Board(板级)      │
-│   · XiaozhiOledDisplay : OledDisplay   │  ← 覆写 SetEmotion 做情绪灯
-│   · AudioCodec / Display / MCP Server   │
+│   · XiaozhiOledDisplay : OledDisplay  │  ← 覆写 SetEmotion 做情绪灯
+│   · AudioCodec / Display / MCP Server │
 ├────────────── 本项目组件层 ────────────┤
-│ oyc_visualizer   引擎大脑：模式/音源/情绪/渲染任务│
-│   ├─ audio_processor   FFT + 32 对数频带        │
-│   ├─ led_controller    18 灯效 + 节拍 + 后处理  │
-│   ├─ dual_core_com     命令队列 + 状态快照总线  │
-│   └─ wifi_audio        UDP 5004 收流 / 5005 发现│
-│ oyc_web_console  httpd 控制台 + REST API        │
-│ oyc_lan_ota      /api/ota 局域网升级            │
-└───────────────────────────────────────┘
+│ oyc_visualizer   引擎大脑：模式/音源/情绪/渲染任务
+│   ├─ audio_processor   FFT + 32 对数频带        
+│   ├─ led_controller    18 灯效 + 节拍 + 后处理  
+│   ├─ dual_core_com     命令队列 + 状态快照总线   
+│   └─ wifi_audio        UDP 5004 收流 / 5005 发现
+│ oyc_web_console  httpd 控制台 + REST API        
+│ oyc_lan_ota      /api/ota 局域网升级             
 ```
 
 ### 数据流
 
 ```
-音源 ──┐  PC UDP:5004 ─► wifi_audio_rx(core0) ─┐
+音源 ──┐  PC UDP:5004 ─► wifi_audio_rx(core0)  ─┐
        └  板载麦      ─► OycAmbientMicTask     ─┤
                                                 ▼
                                   环形缓冲(int16) ──► oyc_vis_task (core1, ~30fps)
