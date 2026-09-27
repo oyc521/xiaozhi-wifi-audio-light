@@ -45,6 +45,8 @@ extern const char console_html_start[] asm("_binary_console_html_start");
 extern const char console_html_end[]   asm("_binary_console_html_end");
 extern const char loopback_py_start[]  asm("_binary_loopback_py_start");
 extern const char loopback_py_end[]    asm("_binary_loopback_py_end");
+extern const char stream_agent_py_start[] asm("_binary_stream_agent_py_start");
+extern const char stream_agent_py_end[]   asm("_binary_stream_agent_py_end");
 
 static httpd_handle_t s_server = NULL;
 
@@ -128,6 +130,9 @@ static esp_err_t api_status_handler(httpd_req_t *req) {
     cJSON_AddStringToObject(root, "source", src == OYC_AUDIO_SRC_WIFI ? "wifi" : "mic");
     cJSON_AddBoolToObject(root, "wifi_streaming", wifi_audio_streaming());
     cJSON_AddBoolToObject(root, "music_mode", oyc_visualizer_is_music_mode());
+    oyc_visual_mode_t vm = oyc_visualizer_get_visual_mode();
+    cJSON_AddStringToObject(root, "visual_mode",
+        vm == OYC_VIS_MUSIC ? "music" : vm == OYC_VIS_AMBIENT ? "ambient" : "chat");
 
     const esp_app_desc_t *app = esp_app_get_description();
     if (app) {
@@ -334,7 +339,29 @@ static esp_err_t api_music_handler(httpd_req_t *req) {
     return send_json(req, r);
 }
 
-// ---------------- /loopback.py 与 /start.bat (一键推流) ----------------
+// ---------------- /api/visual (三档：chat / music / ambient) ----------------
+static esp_err_t api_visual_handler(httpd_req_t *req) {
+    if (req->method == HTTP_POST || req->method == HTTP_PUT) {
+        char q[48] = {0};
+        if (httpd_req_get_url_query_str(req, q, sizeof(q)) == ESP_OK) {
+            char m[12] = {0};
+            if (httpd_query_key_value(q, "mode", m, sizeof(m)) == ESP_OK) {
+                if (!strcmp(m, "music"))        oyc_visualizer_set_visual_mode(OYC_VIS_MUSIC);
+                else if (!strcmp(m, "ambient")) oyc_visualizer_set_visual_mode(OYC_VIS_AMBIENT);
+                else                            oyc_visualizer_set_visual_mode(OYC_VIS_CHAT);
+            }
+        }
+    }
+    oyc_visual_mode_t vm = oyc_visualizer_get_visual_mode();
+    cJSON *r = cJSON_CreateObject();
+    cJSON_AddStringToObject(r, "visual_mode",
+        vm == OYC_VIS_MUSIC ? "music" : vm == OYC_VIS_AMBIENT ? "ambient" : "chat");
+    cJSON_AddBoolToObject(r, "music_mode", oyc_visualizer_is_music_mode());
+    cJSON_AddBoolToObject(r, "ambient_mode", oyc_visualizer_is_ambient_mode());
+    return send_json(req, r);
+}
+
+// ---------------- /loopback.py /stream_agent.py 与 /start.bat (一键推流) ----------------
 static esp_err_t loopback_py_handler(httpd_req_t *req) {
     add_cors(req);
     httpd_resp_set_type(req, "text/plain; charset=utf-8");
@@ -343,19 +370,40 @@ static esp_err_t loopback_py_handler(httpd_req_t *req) {
                            (size_t)(loopback_py_end - loopback_py_start));
 }
 
+static esp_err_t stream_agent_py_handler(httpd_req_t *req) {
+    add_cors(req);
+    httpd_resp_set_type(req, "text/plain; charset=utf-8");
+    httpd_resp_set_hdr(req, "Content-Disposition", "attachment; filename=stream_agent.py");
+    return httpd_resp_send(req, stream_agent_py_start,
+                           (size_t)(stream_agent_py_end - stream_agent_py_start));
+}
+
+// 启动器：下载并运行 stream_agent.py（进音乐模式自动开始推流 + 可选自动放歌）。
+// ?play=<目标> 可选：歌单/网址/App 路径，会作为 --play 传给脚本。
 static esp_err_t start_bat_handler(httpd_req_t *req) {
     char ip[16] = {0};
     if (!sta_ip(ip, sizeof(ip))) strcpy(ip, "127.0.0.1");
-    char bat[512];
+
+    char play_arg[300] = {0};
+    char q[340] = {0};
+    if (httpd_req_get_url_query_str(req, q, sizeof(q)) == ESP_OK) {
+        char raw[256] = {0};
+        if (httpd_query_key_value(q, "play", raw, sizeof(raw)) == ESP_OK && raw[0] != '\0') {
+            snprintf(play_arg, sizeof(play_arg), "--play \"%s\"", raw);
+        }
+    }
+
+    char bat[900];
     int n = snprintf(bat, sizeof(bat),
         "@echo off\r\n"
-        "curl -s \"http://%s/loopback.py\" -o \"%%TEMP%%\\esp_loopback.py\"\r\n"
+        "chcp 65001 >nul\r\n"
+        "curl -s \"http://%s/stream_agent.py\" -o \"%%TEMP%%\\esp_stream_agent.py\"\r\n"
         "echo Installing Python deps (first time needs internet)...\r\n"
         "python -m pip install pyaudiowpatch numpy -q\r\n"
-        "echo Starting stream. Close this window to stop.\r\n"
-        "python \"%%TEMP%%\\esp_loopback.py\" %s 5004\r\n"
+        "echo Waiting for device \"music mode\"... (auto stream + optional auto play)\r\n"
+        "python \"%%TEMP%%\\esp_stream_agent.py\" %s %s\r\n"
         "if errorlevel 1 ( echo Failed. Make sure Python is installed and on PATH. )\r\n"
-        "pause\r\n", ip, ip);
+        "pause\r\n", ip, ip, play_arg);
     add_cors(req);
     httpd_resp_set_type(req, "application/octet-stream");
     httpd_resp_set_hdr(req, "Content-Disposition", "attachment; filename=start_esp_audio.bat");
@@ -383,7 +431,11 @@ static esp_err_t start_server(void) {
     cfg.stack_size = 8192;
     cfg.lru_purge_enable = true;
     cfg.max_uri_handlers = 48;    // default 8 is far too small for /api/* x methods + OTA
-    cfg.max_open_sockets = 7;    if (httpd_start(&s_server, &cfg) != ESP_OK) {
+    cfg.max_open_sockets = 7;
+    // OTA 上传大文件，Wi-Fi 抖动时短暂停顿不应被判失败：放宽收发等待超时
+    cfg.recv_wait_timeout = 30;
+    cfg.send_wait_timeout = 30;
+    if (httpd_start(&s_server, &cfg) != ESP_OK) {
         s_server = NULL;
         return ESP_FAIL;
     }
@@ -400,7 +452,9 @@ static esp_err_t start_server(void) {
     REG_ANY("/api/spectrum", api_spectrum_handler);
     REG_ANY("/api/source", api_source_handler);
     REG_ANY("/api/music", api_music_handler);
+    REG_ANY("/api/visual", api_visual_handler);
     REG_GET("/loopback.py", loopback_py_handler);
+    REG_GET("/stream_agent.py", stream_agent_py_handler);
     REG_GET("/start.bat", start_bat_handler);
 
     oyc_lan_ota_register(s_server);   // /api/ota

@@ -753,6 +753,17 @@ menu "OYC Xiaozhi WiFi Audio Light Options"
         help
             Keep moderate: the strip shares the servo 5V rail.
 
+    config OYC_MEM_DIAG
+        bool "Periodic memory diagnostics (heap caps + per-task stack)"
+        depends on OYC_AMBIENT_LIGHT
+        default n
+        help
+            Logs a full memory report ~8s after boot, then every 60s:
+              [MEM INTERNAL]/[MEM SPIRAM] heap distribution, and every task's
+              stack high-water mark plus whether its stack is in internal RAM
+              or PSRAM ([TASK] ... loc=INT/PSRAM).
+            Enable only when investigating memory usage; keep OFF normally.
+
 endmenu
 
 endmenu

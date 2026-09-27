@@ -9,6 +9,12 @@ import sys, socket, time, os
 import numpy as np
 import pyaudiowpatch as pa
 
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+
 SR_OUT = 16000
 CHUNK = 512          # samples per UDP packet (== device FFT_SIZE)
 DISCOVER_PORT = 5005
@@ -100,7 +106,7 @@ def main():
         rate = int(lo['defaultSampleRate'])
         ch = int(lo['maxInputChannels']) or 2
         print('回环设备: [%s] %s  %dHz %dch  ->  %s:%d' % (lo['index'], lo['name'], rate, ch, ip, port))
-        ratio = SR_OUT / rate
+        ratio = rate / SR_OUT   # 每个输出采样前进的输入采样数（重采样到 16k）
         pos = 0.0  # 重采样小数游标
 
         def cb(in_data, frame_count, time_info, status):

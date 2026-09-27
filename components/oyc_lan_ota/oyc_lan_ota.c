@@ -31,13 +31,14 @@
 #include "esp_ota_ops.h"
 #include "esp_partition.h"
 #include "esp_system.h"
+#include "esp_wifi.h"
 
 #include "sdkconfig.h"
 
 #if CONFIG_OYC_DEV_MODE
 
 #define TAG "OYC_LAN_OTA"
-#define OTA_RECV_BUF_SIZE 4096
+#define OTA_RECV_BUF_SIZE 16384   // 4KB -> 16KB：减少 recv/flash 写入次数，提升上传吞吐
 
 static bool s_ota_busy = false;
 static bool s_ota_done = false;
@@ -117,6 +118,11 @@ static esp_err_t ota_upload_handler(httpd_req_t *req) {
     }
     s_ota_busy = true;
     s_ota_done = false;
+
+    // 上传期间关闭 Wi-Fi 省电：idle 时默认 modem sleep 会把 TCP 吞吐压到几百 KB/s。
+    wifi_ps_type_t saved_ps = WIFI_PS_MIN_MODEM;
+    esp_wifi_get_ps(&saved_ps);
+    esp_wifi_set_ps(WIFI_PS_NONE);
 
     esp_err_t result = ESP_OK;
 
@@ -225,6 +231,7 @@ static esp_err_t ota_upload_handler(httpd_req_t *req) {
     schedule_reboot();
 
 done:
+    esp_wifi_set_ps(saved_ps);   // 恢复原省电级别（成功后即将重启，影响可忽略）
     s_ota_busy = false;
     return ESP_OK;
 }

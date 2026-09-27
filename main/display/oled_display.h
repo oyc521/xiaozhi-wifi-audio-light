@@ -21,6 +21,18 @@ private:
     lv_obj_t *emotion_label_ = nullptr;
     lv_obj_t* chat_message_label_ = nullptr;
 
+    // 像素表情（仅 128x64 且 EnableCuteFace(true) 时启用）
+    bool cute_face_ = false;
+    bool big_face_ = false;
+    lv_obj_t* face_img_ = nullptr;
+    lv_timer_t* face_blink_timer_ = nullptr;
+    bool face_blink_ = false;
+    char face_emotion_[16] = "neutral";
+
+    void BuildCuteFace();
+    void DrawCuteFace();
+    static void FaceBlinkTimer(lv_timer_t* t);
+
     virtual bool Lock(int timeout_ms = 0) override;
     virtual void Unlock() override;
 
@@ -34,6 +46,16 @@ public:
     virtual void SetChatMessage(const char* role, const char* content) override;
     virtual void SetEmotion(const char* emotion) override;
     virtual void SetTheme(Theme* theme) override;
+
+    /** 启用程序化 Q 版脸（替换 Font Awesome 情绪图标）。 */
+    void EnableCuteFace(bool enable);
+    /** 显示 Font Awesome 模式图标（如音乐/氛围），隐藏脸。 */
+    void SetModeIcon(const char* fontAwesomeGlyph);
+    /** 隐藏模式图标，恢复显示脸。 */
+    void ClearModeIcon();
+
+    /** 大脸模式：铺满 128x64，隐藏状态栏与聊天文字，仅显示表情。 */
+    void EnableBigFace(bool enable);
 };
 
 #endif // OLED_DISPLAY_H

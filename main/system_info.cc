@@ -8,6 +8,9 @@
 #include <esp_partition.h>
 #include <esp_app_desc.h>
 #include <esp_ota_ops.h>
+#include <esp_heap_caps.h>
+#include <esp_memory_utils.h>
+#include <cstdlib>
 #if CONFIG_IDF_TARGET_ESP32P4
 #include "esp_wifi_remote.h"
 #endif
@@ -148,4 +151,49 @@ void SystemInfo::PrintHeapStats() {
     int free_sram = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
     int min_free_sram = heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL);
     ESP_LOGI(TAG, "free sram: %u minimal sram: %u", free_sram, min_free_sram);
+}
+
+// 全量内存诊断：定位"内部 SRAM 到底被谁吃了"。
+// 1) INTERNAL / SPIRAM 两个堆区的 total/free/alloc/largest/min 分布；
+// 2) 每个任务的名字/核/优先级/栈剩余水位，以及栈是放在 INT 还是 PSRAM。
+void SystemInfo::PrintMemoryDiagnostics() {
+    const struct { const char *name; uint32_t caps; } regions[] = {
+        {"INTERNAL", MALLOC_CAP_INTERNAL},
+        {"SPIRAM",   MALLOC_CAP_SPIRAM},
+    };
+    for (const auto &r : regions) {
+        multi_heap_info_t info;
+        heap_caps_get_info(&info, r.caps);
+        unsigned total = (unsigned)((info.total_free_bytes + info.total_allocated_bytes) / 1024);
+        ESP_LOGI(TAG, "[MEM %-8s] total=%uK free=%uK alloc=%uK largest=%uK minfree=%uK blocks=%u",
+                 r.name, total,
+                 (unsigned)(info.total_free_bytes / 1024),
+                 (unsigned)(info.total_allocated_bytes / 1024),
+                 (unsigned)(info.largest_free_block / 1024),
+                 (unsigned)(info.minimum_free_bytes / 1024),
+                 (unsigned)info.allocated_blocks);
+    }
+
+    UBaseType_t n = uxTaskGetNumberOfTasks() + 4;
+    TaskStatus_t *arr = (TaskStatus_t *)malloc(sizeof(TaskStatus_t) * n);
+    if (arr == nullptr) {
+        ESP_LOGW(TAG, "[TASKS] snapshot alloc failed");
+        return;
+    }
+    uint32_t total_runtime = 0;
+    UBaseType_t got = uxTaskGetSystemState(arr, n, &total_runtime);
+    ESP_LOGI(TAG, "[TASKS] count=%u (stack free = high-water mark, bytes)",
+             (unsigned)uxTaskGetNumberOfTasks());
+    for (UBaseType_t i = 0; i < got; i++) {
+        StackType_t *base = xTaskGetStackStart(arr[i].xHandle);
+        const char *loc = "?";
+        if (base) {
+            loc = esp_ptr_external_ram(base) ? "PSRAM" : (esp_ptr_internal(base) ? "INT" : "OTHER");
+        }
+        ESP_LOGI(TAG, "[TASK] %-14s core=%d prio=%u stackfree=%uB loc=%s",
+                 arr[i].pcTaskName, (int)xTaskGetCoreID(arr[i].xHandle),
+                 (unsigned)arr[i].uxCurrentPriority,
+                 (unsigned)arr[i].usStackHighWaterMark, loc);
+    }
+    free(arr);
 }

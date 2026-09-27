@@ -5,6 +5,8 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/idf_additions.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_netif.h"
@@ -21,7 +23,8 @@ static const char *TAG = "WIFI_AUDIO";
 static int16_t s_ring[RA_SIZE];
 static volatile uint32_t s_head = 0;
 static volatile uint32_t s_tail = 0;
-static volatile uint32_t s_last_rx_us = 0;
+static volatile uint32_t s_last_rx_ms = 0;
+static volatile bool s_rx_ever = false;
 static int s_sock = -1;
 static bool s_started = false;
 static uint16_t s_audio_port = AUDIO_PORT_DEFAULT;
@@ -90,7 +93,8 @@ static void wifi_audio_rx_task(void *arg)
             s_tail = head - RA_SIZE;
         }
         s_head = head;
-        s_last_rx_us = (uint32_t)(esp_timer_get_time() / 1000);
+        s_last_rx_ms = (uint32_t)(esp_timer_get_time() / 1000);
+        s_rx_ever = true;
     }
 }
 
@@ -124,8 +128,8 @@ esp_err_t wifi_audio_init(uint16_t port)
     }
 
     s_started = true;
-    BaseType_t ok = xTaskCreate(wifi_audio_rx_task, "wifi_audio_rx", 3072,
-                                (void *)(intptr_t)s_sock, 12, NULL);
+    BaseType_t ok = xTaskCreateWithCaps(wifi_audio_rx_task, "wifi_audio_rx", 3072,
+                                (void *)(intptr_t)s_sock, 12, NULL, MALLOC_CAP_SPIRAM);
     if (ok != pdPASS) {
         s_started = false;
         return ESP_ERR_NO_MEM;
@@ -139,8 +143,8 @@ esp_err_t wifi_audio_init(uint16_t port)
         daddr.sin_port = htons(DISCOVER_PORT);
         daddr.sin_addr.s_addr = htonl(INADDR_ANY);
         if (bind(dsock, (struct sockaddr *)&daddr, sizeof(daddr)) == 0) {
-            xTaskCreate(wifi_audio_discover_task, "wifi_audio_dsc", 3072,
-                        (void *)(intptr_t)dsock, 11, NULL);
+            xTaskCreateWithCaps(wifi_audio_discover_task, "wifi_audio_dsc", 3072,
+                        (void *)(intptr_t)dsock, 11, NULL, MALLOC_CAP_SPIRAM);
         } else {
             close(dsock);
         }
@@ -179,8 +183,9 @@ int wifi_audio_read(int16_t *out, int n, int timeout_ms)
 
 bool wifi_audio_streaming(void)
 {
+    // now / s_last_rx_ms 均为毫秒；未收到过任何包时一律视为未推流。
     uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
-    return s_started && (now - s_last_rx_us) < 1000000u;
+    return s_started && s_rx_ever && (now - s_last_rx_ms) < 1000u;
 }
 
 int wifi_audio_available(void)

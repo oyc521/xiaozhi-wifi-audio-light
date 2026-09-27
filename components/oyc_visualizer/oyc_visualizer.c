@@ -17,6 +17,8 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/idf_additions.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_event.h"
@@ -30,6 +32,7 @@ static const char *TAG = "OYC_VIS";
 
 #define VIS_FPS_MS 33   // ~30fps 渲染刷新；FFT 帧 1024@16k≈64ms，靠平滑与追帧解耦
 #define WIFI_AUDIO_UDP_PORT 5004
+#define OYC_VIS_DIAG 0  // 调试用：每 5s 打印渲染帧率/晚帧/最大间隔/FFT帧数（需要时设 1）
 
 static fft_processor_t s_fft;
 static bool s_started = false;
@@ -39,11 +42,20 @@ static bool s_auto_follow = true;
 static oyc_audio_src_t s_audio_src = OYC_AUDIO_SRC_MIC;
 static bool s_wifi_rx_up = false;
 static int16_t s_wifi_frame[FFT_SIZE];
-static bool s_music_mode = false;
+static oyc_visual_mode_t s_visual_mode = OYC_VIS_CHAT;
 static oyc_ai_audio_cb_t s_ai_cb = NULL;
+static oyc_visual_mode_cb_t s_mode_cb = NULL;
+
+static void notify_visual_mode(void) {
+    if (s_mode_cb) s_mode_cb(s_visual_mode);
+}
 static int64_t s_stream_lost_us = 0;
 static bool s_prev_streaming = false;
 static float s_chat_bands[NUM_FREQ_BANDS];     // 聊天模式合成"慢呼吸"频谱
+static float s_ambient_bands[NUM_FREQ_BANDS];  // 氛围模式确定性合成频谱
+#if OYC_VIS_DIAG
+static volatile int s_diag_fft = 0;            // 窗口内处理的 FFT 帧数
+#endif
 
 // ---------------- 命令投递 ----------------
 
@@ -115,7 +127,7 @@ void oyc_visualizer_get_spectrum(uint8_t *out32) {
 
 // 情绪 -> 色相/亮度（染色）。聊天模式下常驻灯效不变，仅随情绪变色；音乐模式忽略。
 void oyc_visualizer_set_emotion(const char *emotion) {
-    if (!emotion || s_music_mode) return;   // 音乐模式优先
+    if (!emotion || s_visual_mode != OYC_VIS_CHAT) return;   // 仅聊天模式染色
 
     float hue = 0.09f, intensity = 0.9f;                 // neutral: 暖白、柔和
     if      (strcmp(emotion, "happy") == 0)     { hue = 0.08f; intensity = 1.3f; }
@@ -148,6 +160,21 @@ static void synth_chat_bands(float t_sec) {
     for (int i = 0; i < NUM_FREQ_BANDS; i++) {
         float shape = 1.0f - 0.55f * ((float)i / (float)(NUM_FREQ_BANDS - 1));  // 低频略强
         s_chat_bands[i] = (25.0f + 90.0f * env) * shape;
+    }
+}
+
+// 氛围模式：确定性慢 LFO 合成频谱（无随机、可复现、完全不吃音频）。
+// 三个不同周期(8s/13s/21s)的正弦叠加 -> 缓慢有机起伏，所有灯效都有律动但不突兀。
+static void synth_ambient_bands(float t_sec) {
+    const float TWO_PI = 6.2831853f;
+    float lfo = 0.5f + 0.5f * (0.60f * sinf(TWO_PI * t_sec / 8.0f)
+                             + 0.30f * sinf(TWO_PI * t_sec / 13.0f)
+                             + 0.10f * sinf(TWO_PI * t_sec / 21.0f));
+    if (lfo < 0.0f) lfo = 0.0f;
+    if (lfo > 1.0f) lfo = 1.0f;
+    for (int i = 0; i < NUM_FREQ_BANDS; i++) {
+        float shape = 1.0f - 0.50f * ((float)i / (float)(NUM_FREQ_BANDS - 1));  // 低频略强
+        s_ambient_bands[i] = (35.0f + 70.0f * lfo) * shape;
     }
 }
 
@@ -187,7 +214,7 @@ bool oyc_visualizer_audio_streaming(void) {
 }
 
 bool oyc_visualizer_wants_ambient_mic(void) {
-    return s_music_mode && s_audio_src == OYC_AUDIO_SRC_MIC;
+    return s_visual_mode == OYC_VIS_MUSIC && s_audio_src == OYC_AUDIO_SRC_MIC;
 }
 
 // ---------------- 音乐模式（AI 对话 <-> 音乐可视化 互斥） ----------------
@@ -197,36 +224,90 @@ void oyc_visualizer_set_ai_audio_cb(oyc_ai_audio_cb_t cb) {
     s_ai_cb = cb;
 }
 
+void oyc_visualizer_set_visual_mode_cb(oyc_visual_mode_cb_t cb) {
+    s_mode_cb = cb;
+    if (s_mode_cb) s_mode_cb(s_visual_mode);   // 立即同步当前模式
+}
+
 bool oyc_visualizer_is_music_mode(void) {
-    return s_music_mode;
+    return s_visual_mode == OYC_VIS_MUSIC;
+}
+
+bool oyc_visualizer_is_ambient_mode(void) {
+    return s_visual_mode == OYC_VIS_AMBIENT;
+}
+
+oyc_visual_mode_t oyc_visualizer_get_visual_mode(void) {
+    return s_visual_mode;
 }
 
 esp_err_t oyc_visualizer_enter_music_mode(void) {
-    if (s_music_mode) return ESP_OK;
+    if (s_visual_mode == OYC_VIS_MUSIC) return ESP_OK;
     if (!s_started) return ESP_ERR_INVALID_STATE;
 
     oyc_visualizer_set_audio_source(OYC_AUDIO_SRC_WIFI);  // 源=PC 推流
     if (s_audio_src != OYC_AUDIO_SRC_WIFI) {
         return ESP_FAIL;  // UDP 接收器没起来
     }
-    s_music_mode = true;
+    s_visual_mode = OYC_VIS_MUSIC;
     s_auto_follow = false;        // 锁定灯效，不被设备状态覆盖
     s_stream_lost_us = 0;
     post_reset_trail();           // 进音乐模式清余晖
-    if (s_ai_cb) s_ai_cb(false);  // 暂停小智唤醒/识别
-    ESP_LOGI(TAG, ">> 进入音乐模式：源=WiFi推流，AI语音已暂停");
+    if (s_ai_cb) s_ai_cb(false);  // 暂停 ASR（板级保留唤醒词）
+    notify_visual_mode();
+    ESP_LOGI(TAG, ">> 进入音乐模式：源=WiFi推流");
     return ESP_OK;
 }
 
 void oyc_visualizer_exit_music_mode(void) {
-    if (!s_music_mode) return;
-    s_music_mode = false;
+    if (s_visual_mode != OYC_VIS_MUSIC) return;
+    s_visual_mode = OYC_VIS_CHAT;
     oyc_visualizer_set_audio_source(OYC_AUDIO_SRC_MIC);
     s_auto_follow = true;         // 恢复状态跟随
     s_stream_lost_us = 0;
     post_reset_trail();           // 退出音乐模式清余晖
     if (s_ai_cb) s_ai_cb(true);   // 恢复小智语音
-    ESP_LOGI(TAG, ">> 退出音乐模式：源=麦克风，AI语音已恢复");
+    notify_visual_mode();
+    ESP_LOGI(TAG, ">> 退出音乐模式：聊天模式");
+}
+
+esp_err_t oyc_visualizer_enter_ambient_mode(void) {
+    if (s_visual_mode == OYC_VIS_AMBIENT) return ESP_OK;
+    if (!s_started) return ESP_ERR_INVALID_STATE;
+
+    s_visual_mode = OYC_VIS_AMBIENT;
+    s_auto_follow = false;        // 锁定灯效：不随设备状态/情绪变化
+    post_reset_trail();
+    if (s_ai_cb) s_ai_cb(false);  // 暂停 ASR（板级保留唤醒词，可语音控制）
+    notify_visual_mode();
+    ESP_LOGI(TAG, ">> 进入氛围灯模式：稳定合成信号，无音频输入");
+    return ESP_OK;
+}
+
+void oyc_visualizer_exit_ambient_mode(void) {
+    if (s_visual_mode != OYC_VIS_AMBIENT) return;
+    s_visual_mode = OYC_VIS_CHAT;
+    s_auto_follow = true;
+    post_reset_trail();
+    if (s_ai_cb) s_ai_cb(true);
+    notify_visual_mode();
+    ESP_LOGI(TAG, ">> 退出氛围灯模式：聊天模式");
+}
+
+void oyc_visualizer_set_visual_mode(oyc_visual_mode_t mode) {
+    switch (mode) {
+    case OYC_VIS_MUSIC:
+        oyc_visualizer_enter_music_mode();
+        break;
+    case OYC_VIS_AMBIENT:
+        oyc_visualizer_enter_ambient_mode();
+        break;
+    case OYC_VIS_CHAT:
+    default:
+        if (s_visual_mode == OYC_VIS_MUSIC)        oyc_visualizer_exit_music_mode();
+        else if (s_visual_mode == OYC_VIS_AMBIENT) oyc_visualizer_exit_ambient_mode();
+        break;
+    }
 }
 
 // 推流变化 -> 自动进入/退出音乐模式（在 vis_task 内调用）
@@ -236,8 +317,9 @@ static void music_mode_auto_tick(bool streaming) {
     bool rising = streaming && !s_prev_streaming;
     s_prev_streaming = streaming;
 
-    if (!s_music_mode) {
-        if (rising) {
+    if (s_visual_mode != OYC_VIS_MUSIC) {
+        // 只有聊天模式允许被"推流上升沿"自动切到音乐；氛围模式不受音频影响
+        if (rising && s_visual_mode == OYC_VIS_CHAT) {
             ESP_LOGI(TAG, "检测到推流(上升沿)，自动进入音乐模式");
             oyc_visualizer_enter_music_mode();
         }
@@ -350,9 +432,9 @@ static void vis_task(void *arg) {
         // 1.6 音乐模式自动进入/退出（依据推流是否在流动）
         music_mode_auto_tick(wifi_audio_streaming());
 
-        // 2. 音乐模式才做 FFT：音源=推流 吃 UDP；音源=环境声 吃板级喂入的麦环形缓冲。
-        //    聊天模式完全不用音频做渲染（灯光交给情绪场景）。
-        if (s_music_mode) {
+        // 2. 只有音乐模式做 FFT：音源=推流 吃 UDP；音源=环境声 吃板级喂入的麦环形缓冲。
+        //    聊天/氛围模式完全不用音频做渲染（保证灯效稳定、不被环境声影响）。
+        if (s_visual_mode == OYC_VIS_MUSIC) {
             if (s_fft.sample_rate != 16000) s_fft.sample_rate = 16000;
             int processed = 0;
             if (s_audio_src == OYC_AUDIO_SRC_WIFI) {
@@ -367,19 +449,52 @@ static void vis_task(void *arg) {
                     processed++;
                 }
             }
+#if OYC_VIS_DIAG
+            s_diag_fft += processed;
+#endif
         }
 
-        // 3. 驱动灯效：音乐模式=FFT 频带；聊天模式=合成"慢呼吸"频谱（让所有效果都能动）
-        if (!s_music_mode) {
+        // 3. 驱动灯效：
+        //    音乐=FFT 频带；氛围=确定性慢 LFO；聊天=合成"慢呼吸"频谱
+        float *bands;
+        if (s_visual_mode == OYC_VIS_MUSIC) {
+            bands = s_fft.frequency_bands;
+        } else if (s_visual_mode == OYC_VIS_AMBIENT) {
+            synth_ambient_bands((float)esp_timer_get_time() / 1000000.0f);
+            bands = s_ambient_bands;
+        } else {
             synth_chat_bands((float)esp_timer_get_time() / 1000000.0f);
+            bands = s_chat_bands;
         }
-        led_update_visualization(s_music_mode ? s_fft.frequency_bands : s_chat_bands,
-                                 NUM_FREQ_BANDS);
+        led_update_visualization(bands, NUM_FREQ_BANDS);
 
         // 4. 刷新共享状态（供 Web 控制台 / MCP 读取）
         s_frame_count++;
         dual_core_com_update_status(s_current_mode, s_frame_count);
 
+#if OYC_VIS_DIAG
+        {
+            static int64_t win_us = 0, last_us = 0;
+            static int frames = 0, late = 0, maxgap_ms = 0;
+            int64_t now_us = esp_timer_get_time();
+            if (win_us == 0) win_us = now_us;
+            if (last_us) {
+                int gap_ms = (int)((now_us - last_us) / 1000);
+                if (gap_ms > maxgap_ms) maxgap_ms = gap_ms;
+                if (gap_ms > 45) late++;
+            }
+            last_us = now_us; frames++;
+            if (now_us - win_us >= 5000000) {
+                int secs = (int)((now_us - win_us) / 1000000);
+                if (secs < 1) secs = 1;
+                ESP_LOGI(TAG, "[VIS] %d.%dfps late=%d/%d maxgap=%dms fft=%d/s mode=%d",
+                         frames / secs, (frames * 10 / secs) % 10, late, frames, maxgap_ms,
+                         s_diag_fft / secs, (int)s_visual_mode);
+                win_us = now_us; frames = 0; late = 0; maxgap_ms = 0;
+                s_diag_fft = 0;
+            }
+        }
+#endif
         vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(VIS_FPS_MS));
     }
 }
@@ -412,9 +527,13 @@ esp_err_t oyc_visualizer_start(int gpio, int led_num, int brightness_percent) {
     // UDP 接收器不能在此创建：板级构造早于 esp_netif/lwIP 初始化，socket() 会 assert。
     // 挂 IP 事件后再启动（此时网络栈就绪），见 on_got_ip。
     esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &on_got_ip, NULL);
-    BaseType_t ok = xTaskCreatePinnedToCore(vis_task, "oyc_vis", 8192,
+    // 优先级必须低于音频 AFE 任务(现为 5，见 afe_*_processor.cc 的 afe_perferred_priority)，
+    // 否则 30fps 渲染会饿死 AFE，导致 "AFE(FEED) is full" 并让唤醒/识别失效。
+    // 取 3：低于 AFE(5) 不饿死它，又高于 idle，减少被抢占导致的掉帧。
+    // 栈放 PSRAM，省内部 SRAM。
+    BaseType_t ok = xTaskCreatePinnedToCoreWithCaps(vis_task, "oyc_vis", 8192,
                                             (void *)(intptr_t)brightness_percent,
-                                            2, NULL, 1);
+                                            3, NULL, 1, MALLOC_CAP_SPIRAM);
     if (ok != pdPASS) {
         ESP_LOGE(TAG, "渲染任务创建失败");
         s_started = false;

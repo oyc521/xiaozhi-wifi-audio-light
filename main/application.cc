@@ -608,6 +608,12 @@ void Application::MainEventLoop() {
                 // SystemInfo::PrintTaskList();
                 SystemInfo::PrintHeapStats();
             }
+#if CONFIG_OYC_MEM_DIAG
+            // 内存诊断（Kconfig 开关，默认关）：启动稳定后打一次全量(8s)，之后每 60s 一次
+            if (clock_ticks_ == 8 || (clock_ticks_ > 8 && clock_ticks_ % 60 == 0)) {
+                SystemInfo::PrintMemoryDiagnostics();
+            }
+#endif
         }
     }
 }

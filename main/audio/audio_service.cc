@@ -1,5 +1,7 @@
 #include "audio_service.h"
 #include <esp_log.h>
+#include <esp_heap_caps.h>
+#include <freertos/idf_additions.h>
 #include <cstring>
 
 #if CONFIG_USE_AUDIO_PROCESSOR
@@ -87,12 +89,12 @@ void AudioService::Start() {
         vTaskDelete(NULL);
     }, "audio_input", 2048 * 3, this, 8, &audio_input_task_handle_, 0);
 
-    /* Start the audio output task */
+    /* Start the audio output task（音频实时路径，栈保持内部 RAM，且加大到 6KB 防溢出） */
     xTaskCreate([](void* arg) {
         AudioService* audio_service = (AudioService*)arg;
         audio_service->AudioOutputTask();
         vTaskDelete(NULL);
-    }, "audio_output", 2048 * 2, this, 4, &audio_output_task_handle_);
+    }, "audio_output", 2048 * 3, this, 4, &audio_output_task_handle_);
 #else
     /* Start the audio input task */
     xTaskCreate([](void* arg) {
@@ -106,15 +108,16 @@ void AudioService::Start() {
         AudioService* audio_service = (AudioService*)arg;
         audio_service->AudioOutputTask();
         vTaskDelete(NULL);
-    }, "audio_output", 2048, this, 4, &audio_output_task_handle_);
+    }, "audio_output", 2048 * 2, this, 4, &audio_output_task_handle_);
 #endif
 
-    /* Start the opus codec task */
-    xTaskCreate([](void* arg) {
+    /* Start the opus codec task：栈放 PSRAM 以省内部 SRAM。
+     * 实测 TTS 解码峰值接近 26KB（仅剩 ~1KB 边距），故加大到 40KB 留足余量。 */
+    xTaskCreateWithCaps([](void* arg) {
         AudioService* audio_service = (AudioService*)arg;
         audio_service->OpusCodecTask();
-        vTaskDelete(NULL);
-    }, "opus_codec", 2048 * 13, this, 2, &opus_codec_task_handle_);
+        vTaskDeleteWithCaps(NULL);
+    }, "opus_codec", 2048 * 20, this, 2, &opus_codec_task_handle_, MALLOC_CAP_SPIRAM);
 }
 
 void AudioService::Stop() {

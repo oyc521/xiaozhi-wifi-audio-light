@@ -77,6 +77,30 @@ bool            oyc_visualizer_audio_streaming(void);
     需要板级自己读麦并调用 oyc_visualizer_feed() 提供环境声数据。 */
 bool            oyc_visualizer_wants_ambient_mic(void);
 
+/* ---------------- Visual mode (chat / music / ambient) ----------------
+ *  OYC_VIS_CHAT    : AI 对话；合成"慢呼吸"频谱 + 情绪染色
+ *  OYC_VIS_MUSIC   : 音乐；FFT 律动（推流 / 环境麦），ASR 暂停
+ *  OYC_VIS_AMBIENT : 氛围灯；确定性慢 LFO 合成信号，不吃任何音频、
+ *                    不随设备状态/情绪改变，灯效稳定 —— 纯渲染
+ */
+typedef enum {
+    OYC_VIS_CHAT = 0,
+    OYC_VIS_MUSIC = 1,
+    OYC_VIS_AMBIENT = 2,
+} oyc_visual_mode_t;
+
+oyc_visual_mode_t oyc_visualizer_get_visual_mode(void);
+void              oyc_visualizer_set_visual_mode(oyc_visual_mode_t mode);
+
+/** 模式变化回调（用于屏幕图标等）。进入/退出 chat/music/ambient 时触发。 */
+typedef void (*oyc_visual_mode_cb_t)(oyc_visual_mode_t mode);
+void oyc_visualizer_set_visual_mode_cb(oyc_visual_mode_cb_t cb);
+
+/** 氛围灯模式：稳定合成信号，无音频输入，保持不变直到切换。 */
+esp_err_t oyc_visualizer_enter_ambient_mode(void);
+void      oyc_visualizer_exit_ambient_mode(void);
+bool      oyc_visualizer_is_ambient_mode(void);
+
 /* ---------------- Music mode (AI dialog <-> music visualization) ----------------
  * Music mode = light reacts to the PC WiFi stream, and xiaozhi's wake word /
  * ASR are temporarily disabled, so AI voice and music visualization never run

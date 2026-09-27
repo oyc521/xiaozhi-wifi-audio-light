@@ -4,12 +4,14 @@
 stream_agent.py — 常驻守护：监听设备"音乐模式"，自动开始/停止 WASAPI 回环推流（可选自动放歌）
 
 用法:
-    python stream_agent.py [设备IP] [--play 播放目标] [--always] [--port 5004] [--poll 1.0]
+    python stream_agent.py [设备IP] [--play 播放目标] [--always] [--port 5004] [--poll 1.0] [--silence-exit 30]
 
     --play <路径或网址>   进入音乐模式时自动打开（歌单文件 / 音乐 App / 网页）
     --always              不论音乐模式，启动即一直推流（等同旧 loopback 行为）
     --port <n>            UDP 推流端口（默认 5004）
     --poll <秒>           状态轮询间隔（默认 1.0s）
+    --silence-exit <秒>   声音持续低于阈值超过该秒数就自动停推（默认 30；0=关闭）
+                          停推后设备会因收不到包而自动退出音乐模式；再次进入音乐模式会重新推流
 
 依赖: pip install pyaudiowpatch numpy
 
@@ -19,6 +21,13 @@ stream_agent.py — 常驻守护：监听设备"音乐模式"，自动开始/停
 """
 import sys, os, time, json, socket
 import urllib.request
+
+# 保证在 GBK 控制台也不因 ●▶♪■ 等字符崩溃
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
 
 import numpy as np
 import pyaudiowpatch as pa
@@ -122,6 +131,8 @@ class LoopbackStreamer:
         self._sock = None
         self._ring = bytearray()
         self._pos = 0.0
+        self.last_loud = time.time()   # 最近一次“有声音”的时间
+        self.out_samples = 0           # 已发送样本总数（用于实测速率）
 
     def start(self):
         if self.active:
@@ -142,14 +153,18 @@ class LoopbackStreamer:
 
         rate = int(lo['defaultSampleRate'])
         ch = int(lo['maxInputChannels']) or 2
-        ratio = SR_OUT / rate
+        ratio = rate / SR_OUT          # 每个输出采样前进的输入采样数（重采样到 16k）
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._ring = bytearray()
         self._pos = 0.0
+        self.last_loud = time.time()
+        self.out_samples = 0
 
         def cb(in_data, frame_count, time_info, status):
             data = np.frombuffer(in_data, dtype=np.float32).reshape(-1, ch)
             mono = data.mean(axis=1)
+            if mono.size and float(np.abs(mono).mean()) > 0.002:
+                self.last_loud = time.time()     # 有声音，刷新“静音计时”
             n_in = len(mono)
             idx = self._pos
             out = []
@@ -159,6 +174,7 @@ class LoopbackStreamer:
                 out.append(mono[i0] * (1 - t) + mono[i0 + 1] * t)
                 idx += ratio
             self._pos = idx - n_in
+            self.out_samples += len(out)
             if out:
                 s16 = (np.clip(np.array(out, dtype=np.float32), -1, 1) * 32767).astype('<i2')
                 self._ring.extend(s16.tobytes())
@@ -205,6 +221,7 @@ def parse_args(argv):
     port = AUDIO_PORT
     poll = 1.0
     always = False
+    silence_exit = 30.0
     i = 0
     while i < len(argv):
         a = argv[i]
@@ -214,17 +231,19 @@ def parse_args(argv):
             port = int(argv[i + 1]); i += 2
         elif a == '--poll' and i + 1 < len(argv):
             poll = float(argv[i + 1]); i += 2
+        elif a == '--silence-exit' and i + 1 < len(argv):
+            silence_exit = float(argv[i + 1]); i += 2
         elif a == '--always':
             always = True; i += 1
         elif not a.startswith('--') and ip is None:
             ip = a; i += 1
         else:
             i += 1
-    return ip, play, port, poll, always
+    return ip, play, port, poll, always, silence_exit
 
 
 def main():
-    ip_arg, play, port, poll, always = parse_args(sys.argv[1:])
+    ip_arg, play, port, poll, always, silence_exit = parse_args(sys.argv[1:])
     ip = resolve_ip(ip_arg)
     if not ip:
         print('未发现设备。请确认设备已上电联网、与电脑同一网络；或手动指定：')
@@ -248,9 +267,12 @@ def main():
         return
 
     print('守护中：等待设备进入「音乐模式」...（CTRL+C 退出）')
-    print('   设备 IP: %s   推流端口: %d   轮询: %.1fs' % (ip, port, poll))
+    print('   设备 IP: %s   推流端口: %d   轮询: %.1fs   静音自动停推: %s'
+          % (ip, port, poll, ('%.0fs' % silence_exit) if silence_exit > 0 else '关'))
     was = False
     miss = 0
+    last_rate_t = time.time()
+    last_out = 0
     try:
         while True:
             st = get_status(ip)
@@ -272,6 +294,23 @@ def main():
                 print('检测到「音乐模式」OFF')
                 streamer.stop()
             was = music
+
+            # 静音超过 silence_exit 秒 -> 停推，让设备自动退出音乐模式
+            if silence_exit > 0 and streamer.active and (time.time() - streamer.last_loud) > silence_exit:
+                print('[i] 静音超过 %.0fs，自动停止推流（设备会退出音乐模式）' % silence_exit)
+                streamer.stop()
+
+            # 每 ~5s 打印实测发送采样率（应 ≈16000）
+            now = time.time()
+            if streamer.active and now - last_rate_t >= 5:
+                rate_now = (streamer.out_samples - last_out) / (now - last_rate_t)
+                print('[i] 实测发送 %.0f 样本/秒 (目标 16000)' % rate_now)
+                last_rate_t = now
+                last_out = streamer.out_samples
+            elif not streamer.active:
+                last_rate_t = now
+                last_out = streamer.out_samples
+
             time.sleep(poll)
     except KeyboardInterrupt:
         pass

@@ -1060,6 +1060,8 @@ CONFIG_OYC_DEV_MODE=y
 CONFIG_OYC_AMBIENT_LIGHT=y
 # default:
 CONFIG_OYC_STRIP_BRIGHTNESS=60
+# default:
+# CONFIG_OYC_MEM_DIAG is not set
 # end of OYC Xiaozhi WiFi Audio Light Options
 # end of Xiaozhi Assistant
 

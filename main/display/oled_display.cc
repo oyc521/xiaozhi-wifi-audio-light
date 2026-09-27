@@ -5,6 +5,7 @@
 
 #include <string>
 #include <algorithm>
+#include <cstring>
 
 #include <esp_log.h>
 #include <esp_err.h>
@@ -12,6 +13,9 @@
 #include <font_awesome.h>
 
 #define TAG "OledDisplay"
+
+// 像素表情资源：由板级 oyc_faces.c 提供。其他板未定义时为 NULL（weak），不影响。
+extern "C" __attribute__((weak)) const lv_image_dsc_t* oyc_face_get(const char* emotion, bool blink, bool big);
 
 LV_FONT_DECLARE(BUILTIN_TEXT_FONT);
 LV_FONT_DECLARE(BUILTIN_ICON_FONT);
@@ -97,6 +101,10 @@ OledDisplay::~OledDisplay() {
         lv_obj_del(container_);
     }
 
+    if (face_blink_timer_ != nullptr) {
+        lv_timer_delete(face_blink_timer_);
+        face_blink_timer_ = nullptr;
+    }
     if (panel_ != nullptr) {
         esp_lcd_panel_del(panel_);
     }
@@ -116,6 +124,9 @@ void OledDisplay::Unlock() {
 
 void OledDisplay::SetChatMessage(const char* role, const char* content) {
     DisplayLockGuard lock(this);
+    if (cute_face_) {
+        return;   // 启用像素脸的本板不显示聊天文字
+    }
     if (chat_message_label_ == nullptr) {
         return;
     }
@@ -173,9 +184,9 @@ void OledDisplay::SetupUI_128x64() {
     lv_obj_set_flex_flow(content_, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_flex_main_place(content_, LV_FLEX_ALIGN_CENTER, 0);
 
-    // 创建左侧固定宽度的容器
+    // 创建左侧固定宽度的容器（40px，容纳 40x40 像素表情）
     content_left_ = lv_obj_create(content_);
-    lv_obj_set_size(content_left_, 32, LV_SIZE_CONTENT);  // 固定宽度32像素
+    lv_obj_set_size(content_left_, 40, LV_SIZE_CONTENT);
     lv_obj_set_style_pad_all(content_left_, 0, 0);
     lv_obj_set_style_border_width(content_left_, 0, 0);
 
@@ -197,7 +208,7 @@ void OledDisplay::SetupUI_128x64() {
     lv_label_set_text(chat_message_label_, "");
     lv_label_set_long_mode(chat_message_label_, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_obj_set_style_text_align(chat_message_label_, LV_TEXT_ALIGN_LEFT, 0);
-    lv_obj_set_width(chat_message_label_, width_ - 32);
+    lv_obj_set_width(chat_message_label_, width_ - 40);
     lv_obj_set_style_pad_top(chat_message_label_, 14, 0);
 
     // 延迟一定的时间后开始滚动字幕
@@ -338,16 +349,136 @@ void OledDisplay::SetupUI_128x32() {
 }
 
 void OledDisplay::SetEmotion(const char* emotion) {
-    const char* utf8 = font_awesome_get_utf8(emotion);
     DisplayLockGuard lock(this);
+
+    // 像素表情模式：切换表情图（并在需要时从模式图标切回脸）
+    if (cute_face_ && face_img_ != nullptr && oyc_face_get != nullptr) {
+        strncpy(face_emotion_, (emotion != nullptr && emotion[0] != '\0') ? emotion : "neutral",
+                sizeof(face_emotion_) - 1);
+        face_emotion_[sizeof(face_emotion_) - 1] = '\0';
+        if (emotion_label_ != nullptr) lv_obj_add_flag(emotion_label_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(face_img_, LV_OBJ_FLAG_HIDDEN);
+        face_blink_ = false;
+        DrawCuteFace();
+        return;
+    }
+
     if (emotion_label_ == nullptr) {
         return;
     }
+    const char* utf8 = font_awesome_get_utf8(emotion);
     if (utf8 != nullptr) {
         lv_label_set_text(emotion_label_, utf8);
     } else {
         lv_label_set_text(emotion_label_, FONT_AWESOME_NEUTRAL);
     }
+}
+
+// ---------------- 像素表情（可选，资源由板级 oyc_faces.c 提供） ----------------
+
+void OledDisplay::EnableCuteFace(bool enable) {
+    DisplayLockGuard lock(this);
+    cute_face_ = enable;
+    if (!enable || oyc_face_get == nullptr) {
+        return;
+    }
+    if (emotion_label_ != nullptr) lv_obj_add_flag(emotion_label_, LV_OBJ_FLAG_HIDDEN);
+    BuildCuteFace();
+    DrawCuteFace();
+}
+
+void OledDisplay::BuildCuteFace() {
+    if (face_img_ != nullptr || content_left_ == nullptr) {
+        return;
+    }
+    face_img_ = lv_image_create(content_left_);
+    lv_obj_center(face_img_);
+    lv_obj_set_style_image_recolor(face_img_, lv_color_black(), 0);
+    lv_obj_set_style_image_recolor_opa(face_img_, LV_OPA_COVER, 0);
+    lv_obj_remove_flag(face_img_, LV_OBJ_FLAG_SCROLLABLE);
+
+    face_blink_timer_ = lv_timer_create(FaceBlinkTimer, 3200, this);
+}
+
+void OledDisplay::FaceBlinkTimer(lv_timer_t* t) {
+    auto self = static_cast<OledDisplay*>(lv_timer_get_user_data(t));
+    if (self == nullptr || !self->cute_face_ || self->face_img_ == nullptr) {
+        return;
+    }
+    DisplayLockGuard lock(self);
+    self->face_blink_ = !self->face_blink_;
+    self->DrawCuteFace();
+    lv_timer_set_period(t, self->face_blink_ ? 130 : 3200);   // 闭眼极短，睁眼 ~3.2s
+}
+
+void OledDisplay::DrawCuteFace() {
+    if (face_img_ == nullptr || oyc_face_get == nullptr) {
+        return;
+    }
+    const lv_image_dsc_t* src = oyc_face_get(face_emotion_, face_blink_, big_face_);
+    if (src != nullptr) {
+        lv_image_set_src(face_img_, src);
+    }
+}
+
+void OledDisplay::SetModeIcon(const char* fontAwesomeGlyph) {
+    DisplayLockGuard lock(this);
+    if (!cute_face_) {
+        return;
+    }
+    if (face_img_ != nullptr) lv_obj_add_flag(face_img_, LV_OBJ_FLAG_HIDDEN);
+    if (emotion_label_ != nullptr) {
+        lv_label_set_text(emotion_label_, fontAwesomeGlyph);
+        lv_obj_remove_flag(emotion_label_, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+void OledDisplay::ClearModeIcon() {
+    DisplayLockGuard lock(this);
+    if (!cute_face_) {
+        return;
+    }
+    if (emotion_label_ != nullptr) lv_obj_add_flag(emotion_label_, LV_OBJ_FLAG_HIDDEN);
+    if (face_img_ != nullptr) {
+        lv_obj_remove_flag(face_img_, LV_OBJ_FLAG_HIDDEN);
+        face_blink_ = false;
+        DrawCuteFace();
+    }
+}
+
+void OledDisplay::EnableBigFace(bool enable) {
+    DisplayLockGuard lock(this);
+    big_face_ = enable;
+
+    // 大脸：隐藏状态栏(高度压0)、内容区 64 高、表情 64x64
+    // 小脸：显示状态栏(16)、内容区 48 高、表情 48x48
+    if (status_bar_ != nullptr) {
+        if (enable) {
+            lv_obj_add_flag(status_bar_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_height(status_bar_, 0);
+        } else {
+            lv_obj_remove_flag(status_bar_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_height(status_bar_, 16);
+        }
+    }
+    if (content_right_ != nullptr) {
+        lv_obj_add_flag(content_right_, LV_OBJ_FLAG_HIDDEN);   // 本板不显示聊天文字
+    }
+    if (container_ != nullptr) {
+        lv_obj_set_flex_align(container_, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    }
+    if (content_ != nullptr) {
+        lv_obj_set_size(content_, LV_HOR_RES, enable ? LV_VER_RES : (LV_VER_RES - 16));
+        lv_obj_set_flex_align(content_, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    }
+    if (content_left_ != nullptr) {
+        lv_obj_set_size(content_left_, enable ? 64 : 48, enable ? 64 : 48);
+        lv_obj_center(content_left_);
+    }
+    if (face_img_ != nullptr) {
+        lv_obj_center(face_img_);
+    }
+    DrawCuteFace();   // 切换对应尺寸的表情图
 }
 
 void OledDisplay::SetTheme(Theme* theme) {

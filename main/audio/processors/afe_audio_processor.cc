@@ -55,6 +55,7 @@ void AfeAudioProcessor::Initialize(AudioCodec* codec, int frame_duration_ms, srm
 
     afe_config->agc_init = false;
     afe_config->memory_alloc_mode = AFE_MEMORY_ALLOC_MORE_PSRAM;
+    afe_config->afe_perferred_priority = 5;   // 高于 LED 渲染任务(oyc_vis=1)，避免 AFE 被饿死
 
 #ifdef CONFIG_USE_DEVICE_AEC
     afe_config->aec_init = true;

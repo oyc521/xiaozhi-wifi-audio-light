@@ -1,6 +1,6 @@
 idf_component_register(SRCS "oyc_web_console.c"
                        INCLUDE_DIRS "include"
-                       EMBED_TXTFILES "assets/console.html" "assets/loopback.py"
+                       EMBED_TXTFILES "assets/console.html" "assets/loopback.py" "assets/stream_agent.py"
                        REQUIRES oyc_lan_ota
                                 oyc_visualizer
                                 dual_core_com

@@ -232,8 +232,9 @@
                     <div class="field" style="flex:1 1 100%">
                         <label>工作模式</label>
                         <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                            <button class="btn" id="btn-chat" onclick="setMusicMode(0)">💬 聊天模式（情绪灯）</button>
-                            <button class="btn" id="btn-music" onclick="setMusicMode(1)">🎵 音乐模式（频谱律动）</button>
+                            <button class="btn" id="btn-chat" onclick="setVisualMode('chat')">💬 聊天模式（情绪灯）</button>
+                            <button class="btn" id="btn-music" onclick="setVisualMode('music')">🎵 音乐模式（频谱律动）</button>
+                            <button class="btn" id="btn-ambient" onclick="setVisualMode('ambient')">🕯️ 氛围灯（稳定渲染）</button>
                             <button class="btn ghost" onclick="dlLauncher()">⬇ 下载电脑启动器</button>
                         </div>
                     </div>
@@ -243,6 +244,12 @@
                             <button class="btn" id="src-wifi" onclick="setSrc('wifi')">📶 电脑推流</button>
                             <button class="btn" id="src-mic" onclick="setSrc('mic')">🎤 环境声</button>
                         </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="field" style="flex:1 1 100%">
+                        <label>电脑自动播放目标（可选，留空则不自动放歌）</label>
+                        <input type="text" id="play-target" placeholder="歌单/网页/App，例：D:\Music\list.m3u 或 https://music.163.com">
                     </div>
                 </div>
                 <div class="row">
@@ -318,6 +325,7 @@ let currentMode = -1;
 let timer = null;
 let busyPost = false, scrubPost = false, scrubBright = false;
 let otaFile = null;
+let specTimer = null, otaBusy = false;
 let fpsPrev = {c:0,t:0};
 
 function el(id){ return document.getElementById(id); }
@@ -364,7 +372,7 @@ async function cmd(name){
 }
 
 async function refresh(){
-    if(!ip){ return; }
+    if(!ip || otaBusy){ return; }
     try{
         const s = await api('/api/status');
         el('conn-dot').className = 'dot ' + (s.is_ap_mode?'ap':(s.wifi_connected?'on':''));
@@ -395,9 +403,10 @@ async function refresh(){
         }
         syncFxFromStatus(s);
         if(s.auto_follow!==undefined){ el('btn-auto').textContent = s.auto_follow ? '🔁 自动:开' : '🔒 自动:关'; }
-        if(s.music_mode!==undefined){
-            el('btn-music').style.opacity = s.music_mode ? '1' : '0.45';
-            el('btn-chat').style.opacity  = s.music_mode ? '0.45' : '1';
+        if(s.visual_mode!==undefined){
+            el('btn-chat').style.opacity    = s.visual_mode==='chat'    ? '1' : '0.45';
+            el('btn-music').style.opacity   = s.visual_mode==='music'   ? '1' : '0.45';
+            el('btn-ambient').style.opacity = s.visual_mode==='ambient' ? '1' : '0.45';
         }
         if(s.source!==undefined){
             el('src-wifi').style.opacity = s.source==='wifi' ? '1' : '0.45';
@@ -448,15 +457,16 @@ function resetFx(){ el('s-speed').value=1.0; el('s-intensity').value=1.0; el('s-
 
 function dlLauncher(){
     if(!ip){ openIp(); return; }
-    window.location.href = apiUrl('/start.bat');
-    log('已下载电脑启动器 start_esp_audio.bat,双击它即可推流(会自动装依赖+打开本页)','info');
+    const t = (el('play-target') && el('play-target').value || '').trim();
+    window.location.href = apiUrl('/start.bat') + (t ? ('?play=' + encodeURIComponent(t)) : '');
+    log('已下载电脑启动器 start_esp_audio.bat，双击运行；进音乐模式会自动推流'+(t?'并播放：'+t:''),'info');
 }
 
 // ===================== 实时频谱 (32 柱) =====================
 let specData = new Array(32).fill(0);
 let specPeaks = new Array(32).fill(0);
 async function pollSpec(){
-    if(!ip){ return; }
+    if(!ip || otaBusy){ return; }
     try{
         const r = await api('/api/spectrum');
         if(r && r.bands){
@@ -529,7 +539,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
     buildModes();
     if(ip){ el('ip-label').textContent = ip; startPoll(); } else { openIp(); }
-    setInterval(pollSpec, 90);
+    specTimer = setInterval(pollSpec, 90);
     log('页面已加载，请设置设备 IP 后连接。','info');
 });
 
@@ -540,6 +550,10 @@ async function startOta(){
     const btn=el('ota-btn'); btn.disabled=true;
     el('ota-prog').style.display='block'; el('ota-bar').style.width='0%';
     el('ota-status').textContent='正在上传固件…';
+    // 关键：上传期间停止一切轮询（频谱 90ms + 状态 2.5s），避免抢占 httpd socket/带宽导致上传被拖死
+    otaBusy=true;
+    clearInterval(timer); timer=null;
+    clearInterval(specTimer); specTimer=null;
     const xhr=new XMLHttpRequest();
     xhr.open('POST', apiUrl('/api/ota'));
     xhr.setRequestHeader('Content-Type','application/octet-stream');
@@ -547,18 +561,19 @@ async function startOta(){
     xhr.upload.onprogress=ev=>{ if(ev.lengthComputable) el('ota-bar').style.width=Math.round(ev.loaded/ev.total*100)+'%'; };
     xhr.upload.onload=()=>{ sent=true; };
     xhr.onload=()=>{ el('ota-bar').style.width='100%'; el('ota-status').textContent='上传完成，设备重启中…'; waitBack(); };
-    xhr.onerror=()=>{ if(sent){ el('ota-bar').style.width='100%'; el('ota-status').textContent='上传完成，设备重启中…'; waitBack(); } else { el('ota-status').textContent='上传失败，请检查连接'; btn.disabled=false; } };
+    xhr.onerror=()=>{ if(sent){ el('ota-bar').style.width='100%'; el('ota-status').textContent='上传完成，设备重启中…'; waitBack(); } else { el('ota-status').textContent='上传失败，请检查连接'; otaBusy=false; btn.disabled=false; startPoll(); if(!specTimer) specTimer=setInterval(pollSpec,90); } };
     xhr.send(otaFile);
     otaFile=null;
 }
 async function waitBack(){
-    clearInterval(timer);
+    clearInterval(timer); timer=null;
+    clearInterval(specTimer); specTimer=null;
     for(let i=0;i<25;i++){
         await new Promise(r=>setTimeout(r,3000));
-        try{ const t=await fetch(apiUrl('/ping'),{signal:AbortSignal.timeout(2000)}); if(t.ok){ el('ota-status').textContent='✅ 升级完成，设备已重启'; log('OTA 升级完成','ok'); el('ota-btn').disabled=true; startPoll(); return; } }catch(e){}
+        try{ const t=await fetch(apiUrl('/ping'),{signal:AbortSignal.timeout(2000)}); if(t.ok){ el('ota-status').textContent='✅ 升级完成，设备已重启'; log('OTA 升级完成','ok'); el('ota-btn').disabled=true; otaBusy=false; startPoll(); if(!specTimer) specTimer=setInterval(pollSpec,90); return; } }catch(e){}
     }
     el('ota-status').textContent='⚠️ 未能重新连接，请检查设备';
-    el('ota-btn').disabled=false;
+    el('ota-btn').disabled=false; otaBusy=false;
 }
 
 function openIp(){ el('ip-modal').style.display='flex'; el('ip-input').value=ip; }
@@ -580,10 +595,11 @@ async function toggleAuto(){
     }catch(e){ log('切换失败: '+e.message,'err'); }
 }
 
-async function setMusicMode(on){
+async function setVisualMode(m){
     try{
-        await api('/api/music?on='+on,'POST');
-        log(on?'已进入音乐模式(AI语音暂停, 灯光跟随电脑音乐)':'已进入聊天模式(AI语音恢复)','info');
+        await api('/api/visual?mode='+m,'POST');
+        const names={chat:'聊天模式（AI语音 + 情绪灯）',music:'音乐模式（灯光跟随音乐）',ambient:'氛围灯模式（稳定渲染，不吃音频）'};
+        log('已切换到 '+(names[m]||m),'info');
         refresh();
     }catch(e){ log('模式切换失败: '+e.message,'err'); }
 }
